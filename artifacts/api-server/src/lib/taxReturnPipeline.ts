@@ -12,7 +12,7 @@
  *   - Always upserts (one row per client).
  */
 
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import {
   db,
   clientsTable,
@@ -66,11 +66,15 @@ export async function recalculateAndUpsertTaxReturn(
   const additionalDeductions =
     overrides.additionalDeductions ?? toNum(existing?.itemizedDeductions);
 
-  // Sum W-2 totals
+  // Sum W-2 totals — filter by the tax year being calculated.
+  // A client may have W-2s from multiple years on file; including a different
+  // year's wages would inflate income and produce a wrong return.
   const w2Records = await db
     .select()
     .from(w2DataTable)
-    .where(eq(w2DataTable.clientId, clientId));
+    .where(
+      and(eq(w2DataTable.clientId, clientId), eq(w2DataTable.taxYear, taxYear)),
+    );
   const totalWages = w2Records.reduce((s, r) => s + toNum(r.wagesBox1), 0);
   const totalFederalWithheld = w2Records.reduce(
     (s, r) => s + toNum(r.federalTaxWithheldBox2),

@@ -30,22 +30,33 @@ function NavLink({ href, label, matchPrefix }: { href: string; label: string; ma
   );
 }
 
+function DemoBanner() {
+  return (
+    <div className="bg-amber-100 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-1.5 text-xs text-amber-900 dark:text-amber-100 text-center">
+      ⚠️ <span className="font-semibold">Demo mode</span> — do not upload real tax documents. AI extraction sends file content to a third-party model.
+    </div>
+  );
+}
+
 function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex bg-background">
-      <aside className="w-56 border-r bg-card flex flex-col shrink-0">
-        <div className="px-6 py-5 border-b">
-          <h1 className="text-lg font-bold tracking-tight text-primary">TaxFlow Pro</h1>
-          <p className="text-[11px] text-muted-foreground mt-0.5 uppercase tracking-widest">CPA Precision Terminal</p>
-        </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavLink href="/" label="Dashboard" />
-          <NavLink href="/clients" label="Clients" matchPrefix />
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
+    <div className="min-h-screen flex flex-col bg-background">
+      <DemoBanner />
+      <div className="flex flex-1 overflow-hidden">
+        <aside className="w-56 border-r bg-card flex flex-col shrink-0">
+          <div className="px-6 py-5 border-b">
+            <h1 className="text-lg font-bold tracking-tight text-primary">TaxFlow Pro</h1>
+            <p className="text-[11px] text-muted-foreground mt-0.5 uppercase tracking-widest">CPA Precision Terminal</p>
+          </div>
+          <nav className="flex-1 px-3 py-4 space-y-1">
+            <NavLink href="/" label="Dashboard" />
+            <NavLink href="/clients" label="Clients" matchPrefix />
+          </nav>
+        </aside>
+        <main className="flex-1 overflow-auto">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

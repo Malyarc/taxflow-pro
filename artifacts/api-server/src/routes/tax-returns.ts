@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, taxReturnsTable } from "@workspace/db";
+import { db, taxReturnsTable, clientsTable } from "@workspace/db";
 import {
   GetTaxReturnParams,
   CalculateTaxReturnParams,
@@ -9,6 +9,11 @@ import {
   UpdateTaxReturnBody,
 } from "@workspace/api-zod";
 import { recalculateAndUpsertTaxReturn } from "../lib/taxReturnPipeline";
+import {
+  calculateFederalTaxWithBreakdown,
+  calculateStateTaxWithBreakdown,
+  resolveTaxYear,
+} from "../lib/taxCalculator";
 
 const router: IRouter = Router();
 
@@ -45,6 +50,58 @@ router.get("/clients/:clientId/tax-return", async (req, res): Promise<void> => {
     return;
   }
   res.json(mapReturn(taxReturn));
+});
+
+// Per-bracket breakdown for the current tax return — for the UI's "show your work" panel.
+router.get("/clients/:clientId/tax-return/breakdown", async (req, res): Promise<void> => {
+  const params = GetTaxReturnParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [taxReturn] = await db
+    .select()
+    .from(taxReturnsTable)
+    .where(eq(taxReturnsTable.clientId, params.data.clientId));
+  if (!taxReturn) {
+    res.status(404).json({ error: "Tax return not found" });
+    return;
+  }
+  const [client] = await db
+    .select()
+    .from(clientsTable)
+    .where(eq(clientsTable.id, params.data.clientId));
+  if (!client) {
+    res.status(404).json({ error: "Client not found" });
+    return;
+  }
+
+  const year = resolveTaxYear(taxReturn.taxYear);
+  const taxableIncome = Number(taxReturn.taxableIncome ?? 0);
+  const agi = Number(taxReturn.adjustedGrossIncome ?? 0);
+  const filingStatus = taxReturn.filingStatus ?? client.filingStatus;
+
+  const fed = calculateFederalTaxWithBreakdown(taxableIncome, filingStatus, year);
+  const state = calculateStateTaxWithBreakdown(agi, client.state, filingStatus, year);
+
+  res.json({
+    taxYear: year,
+    filingStatus,
+    federal: {
+      taxableIncome,
+      total: fed.total,
+      marginalRate: fed.marginalRate,
+      brackets: fed.breakdown,
+    },
+    state: {
+      stateCode: client.state,
+      stateName: state.stateName,
+      hasIncomeTax: state.hasIncomeTax,
+      total: state.total,
+      marginalRate: state.marginalRate,
+      brackets: state.breakdown,
+    },
+  });
 });
 
 router.post("/clients/:clientId/tax-return", async (req, res): Promise<void> => {

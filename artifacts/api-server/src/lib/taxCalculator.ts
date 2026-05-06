@@ -169,6 +169,41 @@ function applyBrackets(taxableIncome: number, brackets: StateBracket[]): number 
   return tax;
 }
 
+export interface BracketBreakdown {
+  rate: number;        // marginal rate of this bracket (e.g. 0.22)
+  bracketMin: number;  // lower bound of this bracket
+  bracketMax: number;  // upper bound (or Infinity)
+  taxableInBracket: number;  // dollars actually taxed at this rate
+  taxFromBracket: number;    // dollars of tax owed from this bracket
+}
+
+/** Like applyBrackets, but returns a per-bracket breakdown for display. */
+function applyBracketsWithBreakdown(
+  taxableIncome: number,
+  brackets: StateBracket[],
+): BracketBreakdown[] {
+  const out: BracketBreakdown[] = [];
+  if (taxableIncome <= 0) return out;
+  let prevCap = 0;
+  for (const bracket of brackets) {
+    if (taxableIncome <= prevCap) break;
+    const cap = bracket.upTo;
+    const taxableInBracket = Math.max(0, Math.min(taxableIncome, cap) - prevCap);
+    if (taxableInBracket > 0) {
+      out.push({
+        rate: bracket.rate,
+        bracketMin: prevCap,
+        bracketMax: cap,
+        taxableInBracket,
+        taxFromBracket: taxableInBracket * bracket.rate,
+      });
+    }
+    if (taxableIncome <= cap) break;
+    prevCap = cap;
+  }
+  return out;
+}
+
 export function calculateFederalTax(
   taxableIncome: number,
   filingStatus: string,
@@ -178,6 +213,46 @@ export function calculateFederalTax(
   const yearBrackets = FEDERAL_BRACKETS[year];
   const brackets = yearBrackets[filingStatus] ?? yearBrackets.single;
   return Math.max(0, applyBrackets(taxableIncome, brackets));
+}
+
+export function calculateFederalTaxWithBreakdown(
+  taxableIncome: number,
+  filingStatus: string,
+  taxYear: number,
+): { total: number; breakdown: BracketBreakdown[]; marginalRate: number } {
+  const year = resolveTaxYear(taxYear);
+  const yearBrackets = FEDERAL_BRACKETS[year];
+  const brackets = yearBrackets[filingStatus] ?? yearBrackets.single;
+  const breakdown = applyBracketsWithBreakdown(taxableIncome, brackets);
+  const total = breakdown.reduce((s, b) => s + b.taxFromBracket, 0);
+  const marginalRate =
+    breakdown.length > 0 ? breakdown[breakdown.length - 1].rate : 0;
+  return { total, breakdown, marginalRate };
+}
+
+export function calculateStateTaxWithBreakdown(
+  federalAgi: number,
+  stateCode: string,
+  filingStatus: string,
+  taxYear: number,
+): { total: number; breakdown: BracketBreakdown[]; marginalRate: number; stateName: string; hasIncomeTax: boolean } {
+  const year = resolveTaxYear(taxYear);
+  const yearData = STATE_TAX_DATA_BY_YEAR[year];
+  const info = yearData[stateCode.toUpperCase()];
+  if (!info || !info.hasIncomeTax || !info.brackets || !info.standardDeduction) {
+    return { total: 0, breakdown: [], marginalRate: 0, stateName: info?.name ?? stateCode, hasIncomeTax: false };
+  }
+  const status = filingStatus as StateFilingStatus;
+  const stdDed = pickStateStdDeduction(info.standardDeduction, status);
+  const stateTaxable = Math.max(0, federalAgi - stdDed);
+  const brackets = pickStateBrackets(info.brackets, status);
+  const breakdown = applyBracketsWithBreakdown(stateTaxable, brackets);
+  let total = breakdown.reduce((s, b) => s + b.taxFromBracket, 0);
+  if (info.surtax && federalAgi > info.surtax.threshold) {
+    total += (federalAgi - info.surtax.threshold) * info.surtax.rate;
+  }
+  const marginalRate = breakdown.length > 0 ? breakdown[breakdown.length - 1].rate : 0;
+  return { total: Math.max(0, total), breakdown, marginalRate, stateName: info.name, hasIncomeTax: true };
 }
 
 export function getFederalStandardDeduction(filingStatus: string, taxYear: number): number {

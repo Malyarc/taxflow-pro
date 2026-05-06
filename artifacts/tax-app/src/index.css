@@ -317,3 +317,37 @@
     inset: -1px;
   }
 }
+
+/* ── Print styles: hide chrome and tabs, show only the calculator content ── */
+@media print {
+  /* Hide the demo banner, sidebar, page controls, and other tabs' content */
+  aside,
+  [role="tablist"],
+  button,
+  .print\:hidden,
+  div[class*="bg-amber-100"]:has(span:contains("Demo mode")) {
+    display: none !important;
+  }
+
+  body, html {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Make tab content visible regardless of which tab was active */
+  [role="tabpanel"] {
+    display: block !important;
+  }
+
+  /* Avoid breaking cards across pages mid-content */
+  [class*="rounded-lg"],
+  [class*="border"] {
+    break-inside: avoid;
+  }
+
+  /* Tighten everything up for print */
+  main {
+    padding: 1rem !important;
+    max-width: 100% !important;
+  }
+}

@@ -119,6 +119,34 @@ router.post("/clients/:clientId/documents", async (req, res): Promise<void> => {
   res.status(201).json(doc);
 });
 
+// Stream the raw file content (image/PDF/text) for preview in the UI.
+router.get("/clients/:clientId/documents/:documentId/content", async (req, res): Promise<void> => {
+  const params = DeleteDocumentParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [doc] = await db
+    .select()
+    .from(taxDocumentsTable)
+    .where(
+      and(
+        eq(taxDocumentsTable.id, params.data.documentId),
+        eq(taxDocumentsTable.clientId, params.data.clientId),
+      ),
+    );
+  if (!doc || !doc.fileContent) {
+    res.status(404).json({ error: "Document content not found" });
+    return;
+  }
+  const mimeType = detectMimeType(doc.fileName);
+  const buffer = Buffer.from(doc.fileContent, "base64");
+  res.setHeader("Content-Type", mimeType);
+  res.setHeader("Content-Disposition", `inline; filename="${doc.fileName}"`);
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.send(buffer);
+});
+
 router.delete("/clients/:clientId/documents/:documentId", async (req, res): Promise<void> => {
   const params = DeleteDocumentParams.safeParse(req.params);
   if (!params.success) {

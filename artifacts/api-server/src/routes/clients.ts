@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
-import { db, clientsTable } from "@workspace/db";
+import { db, clientsTable, taxReturnsTable, w2DataTable, adjustmentsTable, taxDocumentsTable } from "@workspace/db";
 import {
   CreateClientBody,
   UpdateClientBody,
@@ -11,6 +11,21 @@ import {
 import { recalculateInBackground } from "../lib/taxReturnPipeline";
 
 const router: IRouter = Router();
+
+const VALID_STATES = new Set([
+  "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM",
+  "NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA",
+  "WV","WI","WY",
+]);
+
+function normalizeState(raw: string | undefined | null): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim().toUpperCase();
+  if (trimmed.length === 0) return null;
+  if (!VALID_STATES.has(trimmed)) return "INVALID";
+  return trimmed;
+}
 
 router.get("/clients", async (req, res): Promise<void> => {
   const clients = await db
@@ -26,7 +41,15 @@ router.post("/clients", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [client] = await db.insert(clientsTable).values(parsed.data).returning();
+  const normalizedState = normalizeState(parsed.data.state);
+  if (normalizedState === "INVALID") {
+    res.status(400).json({ error: `Invalid US state code: "${parsed.data.state}". Use a 2-letter code like "CA" or "NY".` });
+    return;
+  }
+  const [client] = await db
+    .insert(clientsTable)
+    .values({ ...parsed.data, state: normalizedState ?? parsed.data.state })
+    .returning();
   res.status(201).json(client);
 });
 
@@ -58,9 +81,18 @@ router.patch("/clients/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const updateData: Record<string, unknown> = { ...parsed.data, updatedAt: new Date() };
+  if (parsed.data.state !== undefined) {
+    const normalized = normalizeState(parsed.data.state);
+    if (normalized === "INVALID") {
+      res.status(400).json({ error: `Invalid US state code: "${parsed.data.state}". Use a 2-letter code like "CA" or "NY".` });
+      return;
+    }
+    updateData.state = normalized ?? "";
+  }
   const [client] = await db
     .update(clientsTable)
-    .set({ ...parsed.data, updatedAt: new Date() })
+    .set(updateData)
     .where(eq(clientsTable.id, params.data.id))
     .returning();
   if (!client) {
@@ -78,9 +110,17 @@ router.delete("/clients/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+  // Application-level cascade: schema has no FK constraints, so we delete
+  // dependent rows manually before removing the client.
+  const id = params.data.id;
+  await db.delete(taxReturnsTable).where(eq(taxReturnsTable.clientId, id));
+  await db.delete(adjustmentsTable).where(eq(adjustmentsTable.clientId, id));
+  await db.delete(w2DataTable).where(eq(w2DataTable.clientId, id));
+  await db.delete(taxDocumentsTable).where(eq(taxDocumentsTable.clientId, id));
+
   const [client] = await db
     .delete(clientsTable)
-    .where(eq(clientsTable.id, params.data.id))
+    .where(eq(clientsTable.id, id))
     .returning();
   if (!client) {
     res.status(404).json({ error: "Client not found" });

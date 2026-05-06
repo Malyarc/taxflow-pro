@@ -27,7 +27,7 @@ import type {
   CreateAdjustmentBodyAdjustmentType,
   UpdateAdjustmentBodyAdjustmentType,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 
 const FILING_STATUS_LABELS: Record<string, string> = {
@@ -57,6 +58,14 @@ function fmt(n: number | null | undefined) {
 function pct(n: number | null | undefined) {
   if (n == null) return "—";
   return `${(n * 100).toFixed(2)}%`;
+}
+
+/** Mask all but last 4 digits of an SSN: "123-45-6789" → "XXX-XX-6789". */
+function maskSSN(ssn: string | null | undefined): string {
+  if (!ssn) return "—";
+  const digits = ssn.replace(/\D/g, "");
+  if (digits.length < 4) return "XXX-XX-XXXX";
+  return `XXX-XX-${digits.slice(-4)}`;
 }
 
 // ─── Documents Tab ───────────────────────────────────────────────────────────
@@ -80,6 +89,7 @@ function DocumentsTab({ clientId }: { clientId: number }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [docType, setDocType] = useState("w2");
   const [uploading, setUploading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ id: number; fileName: string } | null>(null);
 
   // When a processing doc transitions to extracted, refresh W-2 list + tax return.
   const extractedCount = (docs ?? []).filter((d) => d.status === "extracted").length;
@@ -198,7 +208,15 @@ function DocumentsTab({ clientId }: { clientId: number }) {
                   <td className="px-4 py-3 text-sm text-muted-foreground">
                     {doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right space-x-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPreviewDoc({ id: doc.id, fileName: doc.fileName })}
+                      disabled={doc.status === "processing"}
+                    >
+                      Preview
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -214,7 +232,35 @@ function DocumentsTab({ clientId }: { clientId: number }) {
           </table>
         </div>
       )}
+
+      <Dialog open={previewDoc != null} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{previewDoc?.fileName}</DialogTitle>
+          </DialogHeader>
+          {previewDoc && <DocumentPreview clientId={clientId} docId={previewDoc.id} fileName={previewDoc.fileName} />}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function DocumentPreview({ clientId, docId, fileName }: { clientId: number; docId: number; fileName: string }) {
+  const url = `/api/clients/${clientId}/documents/${docId}/content`;
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".pdf")) {
+    return <iframe src={url} className="w-full h-[75vh]" title={fileName} />;
+  }
+  if (lower.match(/\.(jpe?g|png|webp|gif)$/)) {
+    return <img src={url} alt={fileName} className="max-w-full max-h-[75vh] mx-auto" />;
+  }
+  // Plain text or other — show in a scrollable pre block
+  return (
+    <iframe
+      src={url}
+      className="w-full h-[60vh] border rounded bg-muted"
+      title={fileName}
+    />
   );
 }
 
@@ -410,7 +456,13 @@ function W2DataTab({ clientId }: { clientId: number }) {
         <Card key={rec.id}>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">{rec.employerName ?? `W-2 #${rec.id}`} <span className="text-muted-foreground font-normal text-sm">— {rec.taxYear}</span></CardTitle>
+              <CardTitle className="text-base">
+                {rec.employerName ?? `W-2 #${rec.id}`}
+                <span className="text-muted-foreground font-normal text-sm"> — {rec.taxYear}</span>
+                {rec.employeeSSN && (
+                  <span className="text-muted-foreground font-mono font-normal text-xs ml-3">SSN {maskSSN(rec.employeeSSN)}</span>
+                )}
+              </CardTitle>
               <div className="flex gap-2">
                 {editingId === rec.id ? (
                   <>
@@ -481,12 +533,37 @@ function W2DataTab({ clientId }: { clientId: number }) {
 
 // ─── Tax Calculator Tab ───────────────────────────────────────────────────────
 
+interface BracketBreakdownRow {
+  rate: number;
+  bracketMin: number;
+  bracketMax: number;
+  taxableInBracket: number;
+  taxFromBracket: number;
+}
+interface BreakdownResponse {
+  taxYear: number;
+  filingStatus: string;
+  federal: { taxableIncome: number; total: number; marginalRate: number; brackets: BracketBreakdownRow[] };
+  state: { stateCode: string; stateName: string; hasIncomeTax: boolean; total: number; marginalRate: number; brackets: BracketBreakdownRow[] };
+}
+
 function TaxCalculatorTab({ clientId, taxYear }: { clientId: number; taxYear: number }) {
   const { data: taxReturn, isLoading } = useGetTaxReturn(clientId, {
     query: { queryKey: getGetTaxReturnQueryKey(clientId), retry: false },
   });
   const calculate = useCalculateTaxReturn();
   const qc = useQueryClient();
+
+  const breakdown = useQuery<BreakdownResponse>({
+    queryKey: ["tax-return-breakdown", clientId, taxReturn?.updatedAt],
+    enabled: !!taxReturn,
+    retry: false,
+    queryFn: async () => {
+      const res = await fetch(`/api/clients/${clientId}/tax-return/breakdown`);
+      if (!res.ok) throw new Error("Failed to load breakdown");
+      return res.json();
+    },
+  });
 
   const [additionalIncome, setAdditionalIncome] = useState("");
   const [useItemized, setUseItemized] = useState(false);
@@ -611,6 +688,16 @@ function TaxCalculatorTab({ clientId, taxYear }: { clientId: number; taxYear: nu
               </CardContent>
             </Card>
           </div>
+
+          {breakdown.data && (
+            <BracketBreakdownPanel data={breakdown.data} />
+          )}
+
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => window.print()}>
+              Print return
+            </Button>
+          </div>
         </div>
       ) : (
         <Card>
@@ -635,6 +722,98 @@ interface AdjFormData {
 
 function blankAdj(): AdjFormData {
   return { adjustmentType: "deduction", amount: "", description: "", category: "", isApplied: true };
+}
+
+function BracketBreakdownPanel({ data }: { data: BreakdownResponse }) {
+  const fmtRange = (min: number, max: number) =>
+    max === Infinity || max > 1e15 ? `${fmt(min)}+` : `${fmt(min)} – ${fmt(max)}`;
+  const fmtRate = (r: number) => `${(r * 100).toFixed(2)}%`;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Federal bracket breakdown · TY{data.taxYear}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-xs text-muted-foreground mb-3">
+            Marginal rate: <span className="font-mono font-semibold text-foreground">{fmtRate(data.federal.marginalRate)}</span>
+          </div>
+          {data.federal.brackets.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No taxable income.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="text-left pb-1.5">Bracket</th>
+                  <th className="text-right pb-1.5">Rate</th>
+                  <th className="text-right pb-1.5">Taxed in bracket</th>
+                  <th className="text-right pb-1.5">Tax</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                {data.federal.brackets.map((b, i) => (
+                  <tr key={i} className="border-t border-muted/60">
+                    <td className="py-1">{fmtRange(b.bracketMin, b.bracketMax)}</td>
+                    <td className="py-1 text-right">{fmtRate(b.rate)}</td>
+                    <td className="py-1 text-right">{fmt(b.taxableInBracket)}</td>
+                    <td className="py-1 text-right font-semibold">{fmt(b.taxFromBracket)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-foreground/20 font-semibold">
+                  <td className="py-1.5" colSpan={3}>Total federal</td>
+                  <td className="py-1.5 text-right">{fmt(data.federal.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">{data.state.stateName} bracket breakdown · TY{data.taxYear}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!data.state.hasIncomeTax ? (
+            <div className="text-sm text-muted-foreground">{data.state.stateName} has no state income tax on wages.</div>
+          ) : data.state.brackets.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No state taxable income after standard deduction.</div>
+          ) : (
+            <>
+              <div className="text-xs text-muted-foreground mb-3">
+                Marginal rate: <span className="font-mono font-semibold text-foreground">{fmtRate(data.state.marginalRate)}</span>
+              </div>
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="text-left pb-1.5">Bracket</th>
+                    <th className="text-right pb-1.5">Rate</th>
+                    <th className="text-right pb-1.5">Taxed in bracket</th>
+                    <th className="text-right pb-1.5">Tax</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  {data.state.brackets.map((b, i) => (
+                    <tr key={i} className="border-t border-muted/60">
+                      <td className="py-1">{fmtRange(b.bracketMin, b.bracketMax)}</td>
+                      <td className="py-1 text-right">{fmtRate(b.rate)}</td>
+                      <td className="py-1 text-right">{fmt(b.taxableInBracket)}</td>
+                      <td className="py-1 text-right font-semibold">{fmt(b.taxFromBracket)}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-foreground/20 font-semibold">
+                    <td className="py-1.5" colSpan={3}>Total state</td>
+                    <td className="py-1.5 text-right">{fmt(data.state.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 function AdjustmentsTab({ clientId }: { clientId: number }) {
