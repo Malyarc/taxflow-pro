@@ -10,6 +10,11 @@ import {
   useCreateW2Data,
   useUpdateW2Data,
   useDeleteW2Data,
+  useListForm1099Data,
+  useCreateForm1099Data,
+  useUpdateForm1099Data,
+  useDeleteForm1099Data,
+  getListForm1099DataQueryKey,
   useCalculateTaxReturn,
   useUpdateTaxReturn,
   useCreateAdjustment,
@@ -26,6 +31,7 @@ import type {
   UploadDocumentBodyDocumentType,
   CreateAdjustmentBodyAdjustmentType,
   UpdateAdjustmentBodyAdjustmentType,
+  CreateForm1099DataBodyFormType,
 } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
@@ -840,7 +846,8 @@ function TaxCalculatorTab({ clientId, taxYear }: { clientId: number; taxYear: nu
                   ["Federal Tax (total)", taxReturn.federalTaxLiability],
                   ...((Number(taxReturn.selfEmploymentTax) || 0) > 0 ? [["  └─ SE Tax", taxReturn.selfEmploymentTax]] as Array<[string, unknown]> : []),
                   ...((Number(taxReturn.amtTax) || 0) > 0 ? [["  └─ AMT", taxReturn.amtTax]] as Array<[string, unknown]> : []),
-                  ...((Number(taxReturn.niitTax) || 0) > 0 ? [["  └─ NIIT", taxReturn.niitTax]] as Array<[string, unknown]> : []),
+                  ...((Number(taxReturn.niitTax) || 0) > 0 ? [["  └─ NIIT (3.8%)", taxReturn.niitTax]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).capitalGainsTax) || 0) > 0 ? [["  └─ Capital Gains Tax (LTCG/QDIV)", (taxReturn as any).capitalGainsTax]] as Array<[string, unknown]> : []),
                   ...((Number(taxReturn.qbiDeduction) || 0) > 0 ? [["  └─ QBI Deduction", taxReturn.qbiDeduction]] as Array<[string, unknown]> : []),
                   ...((Number(taxReturn.additionalChildTaxCredit) || 0) > 0 ? [["  └─ Refundable ACTC", taxReturn.additionalChildTaxCredit]] as Array<[string, unknown]> : []),
                   ["Federal Withheld", taxReturn.federalTaxWithheld],
@@ -1158,6 +1165,360 @@ function DiffCard({ a, b }: { a: PreviewResponse; b: PreviewResponse }) {
         </table>
       </CardContent>
     </Card>
+  );
+}
+
+// ─── 1099 Forms Tab ──────────────────────────────────────────────────────────
+
+const FORM_1099_TYPES: Array<{ value: string; label: string; desc: string }> = [
+  { value: "nec", label: "1099-NEC", desc: "Nonemployee compensation (self-employment)" },
+  { value: "misc", label: "1099-MISC", desc: "Rent, royalties, other income" },
+  { value: "int", label: "1099-INT", desc: "Interest income" },
+  { value: "div", label: "1099-DIV", desc: "Dividends + capital gain distributions" },
+  { value: "b", label: "1099-B", desc: "Brokerage / capital gains" },
+  { value: "r", label: "1099-R", desc: "Retirement distributions" },
+  { value: "g", label: "1099-G", desc: "Government payments / unemployment" },
+  { value: "k", label: "1099-K", desc: "Payment card / third-party network" },
+];
+
+const FORM_TYPE_LABEL: Record<string, string> = Object.fromEntries(
+  FORM_1099_TYPES.map((t) => [t.value, t.label]),
+);
+
+interface Form1099FormState {
+  formType: string;
+  payerName: string;
+  payerTin: string;
+  recipientTin: string;
+  federalTaxWithheld: string;
+  stateTaxWithheld: string;
+  stateCode: string;
+  // type-specific
+  nonemployeeCompensation: string;
+  rents: string;
+  royalties: string;
+  otherIncome: string;
+  interestIncome: string;
+  taxExemptInterest: string;
+  ordinaryDividends: string;
+  qualifiedDividends: string;
+  totalCapitalGainDistribution: string;
+  proceeds: string;
+  costBasis: string;
+  shortTermGainLoss: string;
+  longTermGainLoss: string;
+  grossDistribution: string;
+  taxableAmount: string;
+  distributionCode: string;
+  unemploymentCompensation: string;
+  stateLocalRefund: string;
+  grossPaymentAmount: string;
+}
+
+function blank1099Form(formType: string = "nec"): Form1099FormState {
+  return {
+    formType,
+    payerName: "",
+    payerTin: "",
+    recipientTin: "",
+    federalTaxWithheld: "",
+    stateTaxWithheld: "",
+    stateCode: "",
+    nonemployeeCompensation: "",
+    rents: "",
+    royalties: "",
+    otherIncome: "",
+    interestIncome: "",
+    taxExemptInterest: "",
+    ordinaryDividends: "",
+    qualifiedDividends: "",
+    totalCapitalGainDistribution: "",
+    proceeds: "",
+    costBasis: "",
+    shortTermGainLoss: "",
+    longTermGainLoss: "",
+    grossDistribution: "",
+    taxableAmount: "",
+    distributionCode: "",
+    unemploymentCompensation: "",
+    stateLocalRefund: "",
+    grossPaymentAmount: "",
+  };
+}
+
+function Form1099Fields({ form, onChange }: { form: Form1099FormState; onChange: (k: keyof Form1099FormState, v: string) => void }) {
+  // Fields shown depend on the formType
+  const t = form.formType;
+  const typeFields: Array<{ key: keyof Form1099FormState; label: string }> = [];
+  if (t === "nec") typeFields.push({ key: "nonemployeeCompensation", label: "Box 1 — Nonemployee comp" });
+  if (t === "misc") {
+    typeFields.push({ key: "rents", label: "Box 1 — Rents" });
+    typeFields.push({ key: "royalties", label: "Box 2 — Royalties" });
+    typeFields.push({ key: "otherIncome", label: "Box 3 — Other income" });
+  }
+  if (t === "int") {
+    typeFields.push({ key: "interestIncome", label: "Box 1 — Interest" });
+    typeFields.push({ key: "taxExemptInterest", label: "Box 8 — Tax-exempt interest" });
+  }
+  if (t === "div") {
+    typeFields.push({ key: "ordinaryDividends", label: "Box 1a — Ordinary dividends" });
+    typeFields.push({ key: "qualifiedDividends", label: "Box 1b — Qualified dividends" });
+    typeFields.push({ key: "totalCapitalGainDistribution", label: "Box 2a — Total capital gain dist." });
+  }
+  if (t === "b") {
+    typeFields.push({ key: "proceeds", label: "Box 1d — Proceeds" });
+    typeFields.push({ key: "costBasis", label: "Box 1e — Cost basis" });
+    typeFields.push({ key: "shortTermGainLoss", label: "Short-term gain/loss" });
+    typeFields.push({ key: "longTermGainLoss", label: "Long-term gain/loss" });
+  }
+  if (t === "r") {
+    typeFields.push({ key: "grossDistribution", label: "Box 1 — Gross distribution" });
+    typeFields.push({ key: "taxableAmount", label: "Box 2a — Taxable amount" });
+  }
+  if (t === "g") {
+    typeFields.push({ key: "unemploymentCompensation", label: "Box 1 — Unemployment comp." });
+    typeFields.push({ key: "stateLocalRefund", label: "Box 2 — State/local refund" });
+  }
+  if (t === "k") {
+    typeFields.push({ key: "grossPaymentAmount", label: "Box 1a — Gross payment amount" });
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-4 mt-4">
+      <div className="col-span-2 grid grid-cols-3 gap-4">
+        <div className="space-y-1">
+          <Label className="text-xs">Form Type</Label>
+          <Select value={form.formType} onValueChange={(v) => onChange("formType", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {FORM_1099_TYPES.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label} — {opt.desc}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Payer Name</Label>
+          <Input value={form.payerName} onChange={(e) => onChange("payerName", e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Payer TIN</Label>
+          <Input value={form.payerTin} onChange={(e) => onChange("payerTin", e.target.value)} placeholder="XX-XXXXXXX" />
+        </div>
+      </div>
+      {typeFields.map(({ key, label }) => (
+        <div key={key} className="space-y-1">
+          <Label className="text-xs text-muted-foreground">{label}</Label>
+          <CurrencyInput value={form[key]} onChange={(v) => onChange(key, v)} />
+        </div>
+      ))}
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Federal W/H</Label>
+        <CurrencyInput value={form.federalTaxWithheld} onChange={(v) => onChange("federalTaxWithheld", v)} />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">State W/H</Label>
+        <CurrencyInput value={form.stateTaxWithheld} onChange={(v) => onChange("stateTaxWithheld", v)} />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">State Code</Label>
+        <Input value={form.stateCode} onChange={(e) => onChange("stateCode", e.target.value)} placeholder="CA" maxLength={2} />
+      </div>
+    </div>
+  );
+}
+
+function Form1099Tab({ clientId }: { clientId: number }) {
+  const { data: records, isLoading } = useListForm1099Data(clientId, {
+    query: { queryKey: getListForm1099DataQueryKey(clientId) },
+  });
+  const create = useCreateForm1099Data();
+  const update = useUpdateForm1099Data();
+  const del = useDeleteForm1099Data();
+  const qc = useQueryClient();
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showNew, setShowNew] = useState(false);
+  const [newForm, setNewForm] = useState<Form1099FormState>(blank1099Form());
+  const [editForms, setEditForms] = useState<Record<number, Form1099FormState>>({});
+
+  function invalidate() {
+    qc.invalidateQueries({ queryKey: getListForm1099DataQueryKey(clientId) });
+    qc.invalidateQueries({ queryKey: getGetTaxReturnQueryKey(clientId) });
+    qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+  }
+
+  function toPayload(f: Form1099FormState) {
+    const numField = (s: string) => (s ? Number(s) : undefined);
+    const strField = (s: string) => (s ? s : undefined);
+    return {
+      taxYear: new Date().getFullYear() - 1, // will be set by client.taxYear
+      formType: f.formType as CreateForm1099DataBodyFormType,
+      payerName: strField(f.payerName),
+      payerTin: strField(f.payerTin),
+      recipientTin: strField(f.recipientTin),
+      federalTaxWithheld: numField(f.federalTaxWithheld),
+      stateTaxWithheld: numField(f.stateTaxWithheld),
+      stateCode: strField(f.stateCode),
+      nonemployeeCompensation: numField(f.nonemployeeCompensation),
+      rents: numField(f.rents),
+      royalties: numField(f.royalties),
+      otherIncome: numField(f.otherIncome),
+      interestIncome: numField(f.interestIncome),
+      taxExemptInterest: numField(f.taxExemptInterest),
+      ordinaryDividends: numField(f.ordinaryDividends),
+      qualifiedDividends: numField(f.qualifiedDividends),
+      totalCapitalGainDistribution: numField(f.totalCapitalGainDistribution),
+      proceeds: numField(f.proceeds),
+      costBasis: numField(f.costBasis),
+      shortTermGainLoss: numField(f.shortTermGainLoss),
+      longTermGainLoss: numField(f.longTermGainLoss),
+      grossDistribution: numField(f.grossDistribution),
+      taxableAmount: numField(f.taxableAmount),
+      distributionCode: strField(f.distributionCode),
+      unemploymentCompensation: numField(f.unemploymentCompensation),
+      stateLocalRefund: numField(f.stateLocalRefund),
+      grossPaymentAmount: numField(f.grossPaymentAmount),
+    };
+  }
+
+  function startEdit(rec: any) {
+    setEditForms((p) => ({
+      ...p,
+      [rec.id]: {
+        formType: rec.formType ?? "nec",
+        payerName: rec.payerName ?? "",
+        payerTin: rec.payerTin ?? "",
+        recipientTin: rec.recipientTin ?? "",
+        federalTaxWithheld: rec.federalTaxWithheld != null ? String(rec.federalTaxWithheld) : "",
+        stateTaxWithheld: rec.stateTaxWithheld != null ? String(rec.stateTaxWithheld) : "",
+        stateCode: rec.stateCode ?? "",
+        nonemployeeCompensation: rec.nonemployeeCompensation != null ? String(rec.nonemployeeCompensation) : "",
+        rents: rec.rents != null ? String(rec.rents) : "",
+        royalties: rec.royalties != null ? String(rec.royalties) : "",
+        otherIncome: rec.otherIncome != null ? String(rec.otherIncome) : "",
+        interestIncome: rec.interestIncome != null ? String(rec.interestIncome) : "",
+        taxExemptInterest: rec.taxExemptInterest != null ? String(rec.taxExemptInterest) : "",
+        ordinaryDividends: rec.ordinaryDividends != null ? String(rec.ordinaryDividends) : "",
+        qualifiedDividends: rec.qualifiedDividends != null ? String(rec.qualifiedDividends) : "",
+        totalCapitalGainDistribution: rec.totalCapitalGainDistribution != null ? String(rec.totalCapitalGainDistribution) : "",
+        proceeds: rec.proceeds != null ? String(rec.proceeds) : "",
+        costBasis: rec.costBasis != null ? String(rec.costBasis) : "",
+        shortTermGainLoss: rec.shortTermGainLoss != null ? String(rec.shortTermGainLoss) : "",
+        longTermGainLoss: rec.longTermGainLoss != null ? String(rec.longTermGainLoss) : "",
+        grossDistribution: rec.grossDistribution != null ? String(rec.grossDistribution) : "",
+        taxableAmount: rec.taxableAmount != null ? String(rec.taxableAmount) : "",
+        distributionCode: rec.distributionCode ?? "",
+        unemploymentCompensation: rec.unemploymentCompensation != null ? String(rec.unemploymentCompensation) : "",
+        stateLocalRefund: rec.stateLocalRefund != null ? String(rec.stateLocalRefund) : "",
+        grossPaymentAmount: rec.grossPaymentAmount != null ? String(rec.grossPaymentAmount) : "",
+      },
+    }));
+    setEditingId(rec.id);
+  }
+
+  function saveEdit(id: number) {
+    const f = editForms[id];
+    if (!f) return;
+    update.mutate(
+      { clientId, form1099Id: id, data: toPayload(f) },
+      {
+        onSuccess: () => { invalidate(); toast({ title: "1099 updated" }); setEditingId(null); },
+        onError: () => toast({ title: "Failed to update", variant: "destructive" }),
+      },
+    );
+  }
+
+  function saveNew() {
+    create.mutate(
+      { clientId, data: toPayload(newForm) },
+      {
+        onSuccess: () => { invalidate(); toast({ title: "1099 added" }); setShowNew(false); setNewForm(blank1099Form()); },
+        onError: () => toast({ title: "Failed to add", variant: "destructive" }),
+      },
+    );
+  }
+
+  function handleDelete(id: number) {
+    if (!confirm("Delete this 1099 record?")) return;
+    del.mutate(
+      { clientId, form1099Id: id },
+      { onSuccess: () => { invalidate(); toast({ title: "1099 deleted" }); } },
+    );
+  }
+
+  if (isLoading) return <Skeleton className="h-48 w-full" />;
+
+  return (
+    <div className="space-y-4">
+      {(records ?? []).map((rec: any) => (
+        <Card key={rec.id}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                <Badge variant="outline" className="mr-2">{FORM_TYPE_LABEL[rec.formType] ?? rec.formType}</Badge>
+                {rec.payerName ?? `1099 #${rec.id}`}
+                <span className="text-muted-foreground font-normal text-sm"> — {rec.taxYear}</span>
+              </CardTitle>
+              <div className="flex gap-2">
+                {editingId === rec.id ? (
+                  <>
+                    <Button size="sm" onClick={() => saveEdit(rec.id)} disabled={update.isPending}>Save</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => startEdit(rec)}>Edit</Button>
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDelete(rec.id)}>Delete</Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {editingId === rec.id ? (
+              <Form1099Fields
+                form={editForms[rec.id] ?? blank1099Form(rec.formType)}
+                onChange={(k, v) => setEditForms((p) => ({ ...p, [rec.id]: { ...(p[rec.id] ?? blank1099Form(rec.formType)), [k]: v } }))}
+              />
+            ) : (
+              <div className="grid grid-cols-4 gap-3 text-sm">
+                {Object.entries(rec).filter(([k, v]) =>
+                  v != null && typeof v === "number" && v !== 0 &&
+                  !["id", "clientId", "documentId", "taxYear"].includes(k)
+                ).map(([k, v]) => (
+                  <div key={k}>
+                    <div className="text-xs text-muted-foreground">{k.replace(/([A-Z])/g, " $1").trim()}</div>
+                    <div className="font-mono font-semibold">{fmt(Number(v))}</div>
+                  </div>
+                ))}
+                {rec.payerTin && (
+                  <div>
+                    <div className="text-xs text-muted-foreground">Payer TIN</div>
+                    <div className="font-mono font-semibold">{rec.payerTin}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+
+      {showNew ? (
+        <Card>
+          <CardHeader><CardTitle className="text-base">New 1099 Record</CardTitle></CardHeader>
+          <CardContent>
+            <Form1099Fields form={newForm} onChange={(k, v) => setNewForm((p) => ({ ...p, [k]: v }))} />
+            <div className="flex gap-2 mt-4">
+              <Button onClick={saveNew} disabled={create.isPending}>Add 1099</Button>
+              <Button variant="outline" onClick={() => { setShowNew(false); setNewForm(blank1099Form()); }}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Button variant="outline" onClick={() => setShowNew(true)}>+ Add 1099 Record</Button>
+      )}
+    </div>
   );
 }
 
@@ -1536,9 +1897,10 @@ export default function ClientDetail() {
       </div>
 
       <Tabs defaultValue="documents">
-        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
+        <TabsList className="grid grid-cols-6 w-full max-w-3xl">
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="w2data">W-2 Data</TabsTrigger>
+          <TabsTrigger value="form1099">1099 Forms</TabsTrigger>
           <TabsTrigger value="calculator">Tax Calculator</TabsTrigger>
           <TabsTrigger value="compare">Year Compare</TabsTrigger>
           <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
@@ -1549,6 +1911,9 @@ export default function ClientDetail() {
         </TabsContent>
         <TabsContent value="w2data" className="mt-6">
           <W2DataTab clientId={clientId} />
+        </TabsContent>
+        <TabsContent value="form1099" className="mt-6">
+          <Form1099Tab clientId={clientId} />
         </TabsContent>
         <TabsContent value="calculator" className="mt-6">
           <TaxCalculatorTab clientId={clientId} taxYear={client.taxYear ?? 2024} />

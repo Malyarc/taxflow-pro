@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, taxDocumentsTable, w2DataTable, clientsTable } from "@workspace/db";
+import { db, taxDocumentsTable, w2DataTable, form1099DataTable, clientsTable } from "@workspace/db";
 import {
   ListDocumentsParams,
   UploadDocumentParams,
@@ -11,6 +11,7 @@ import {
   extractTextFromBase64,
   extractW2DataFromText,
   extractW2DataFromFile,
+  extract1099DataFromFile,
   detectMimeType,
   isVisualMimeType,
 } from "../lib/documentExtractor";
@@ -66,6 +67,13 @@ router.post("/clients/:clientId/documents", async (req, res): Promise<void> => {
         : await extractTextFromBase64(parsed.data.fileContent, parsed.data.fileName);
       let extractedData: Record<string, unknown> = {};
 
+      // Pull the client's tax year so any auto-created records match their return year.
+      const [client] = await db
+        .select()
+        .from(clientsTable)
+        .where(eq(clientsTable.id, params.data.clientId));
+      const clientTaxYear = client?.taxYear ?? new Date().getFullYear() - 1;
+
       if (parsed.data.documentType === "w2") {
         let fieldBoxes: Record<string, unknown> = {};
         if (isVisual) {
@@ -76,17 +84,11 @@ router.post("/clients/:clientId/documents", async (req, res): Promise<void> => {
           extractedData = (await extractW2DataFromText(extractedText)) as Record<string, unknown>;
         }
 
-        // Pull the client's tax year so the auto-created W-2 matches their return year.
-        const [client] = await db
-          .select()
-          .from(clientsTable)
-          .where(eq(clientsTable.id, params.data.clientId));
-
         // Auto-create a W-2 record with extracted data
         await db.insert(w2DataTable).values({
           clientId: params.data.clientId,
           documentId: doc.id,
-          taxYear: client?.taxYear ?? new Date().getFullYear() - 1,
+          taxYear: clientTaxYear,
           employerName: extractedData.employerName as string | undefined,
           employerEin: extractedData.employerEin as string | undefined,
           employeeSSN: extractedData.employeeSSN as string | undefined,
@@ -104,6 +106,56 @@ router.post("/clients/:clientId/documents", async (req, res): Promise<void> => {
 
         // Auto-recalc the tax return so the calculator tab reflects the new W-2 immediately
         await recalculateAndUpsertTaxReturn(params.data.clientId);
+      } else if (parsed.data.documentType === "form_1099" && isVisual) {
+        // 1099 — auto-detect subtype + extract fields
+        const { data, boxes } = await extract1099DataFromFile(parsed.data.fileContent, mimeType);
+        extractedData = data as Record<string, unknown>;
+        const fieldBoxes = boxes as Record<string, unknown>;
+
+        if (data.formType) {
+          await db.insert(form1099DataTable).values({
+            clientId: params.data.clientId,
+            documentId: doc.id,
+            taxYear: clientTaxYear,
+            formType: data.formType,
+            payerName: data.payerName,
+            payerTin: data.payerTin,
+            recipientTin: data.recipientTin,
+            federalTaxWithheld: data.federalTaxWithheld != null ? String(data.federalTaxWithheld) : undefined,
+            stateTaxWithheld: data.stateTaxWithheld != null ? String(data.stateTaxWithheld) : undefined,
+            stateCode: data.stateCode,
+            nonemployeeCompensation: data.nonemployeeCompensation != null ? String(data.nonemployeeCompensation) : undefined,
+            rents: data.rents != null ? String(data.rents) : undefined,
+            royalties: data.royalties != null ? String(data.royalties) : undefined,
+            otherIncome: data.otherIncome != null ? String(data.otherIncome) : undefined,
+            fishingBoatProceeds: data.fishingBoatProceeds != null ? String(data.fishingBoatProceeds) : undefined,
+            medicalAndHealthcare: data.medicalAndHealthcare != null ? String(data.medicalAndHealthcare) : undefined,
+            interestIncome: data.interestIncome != null ? String(data.interestIncome) : undefined,
+            earlyWithdrawalPenalty: data.earlyWithdrawalPenalty != null ? String(data.earlyWithdrawalPenalty) : undefined,
+            usTreasuryInterest: data.usTreasuryInterest != null ? String(data.usTreasuryInterest) : undefined,
+            taxExemptInterest: data.taxExemptInterest != null ? String(data.taxExemptInterest) : undefined,
+            ordinaryDividends: data.ordinaryDividends != null ? String(data.ordinaryDividends) : undefined,
+            qualifiedDividends: data.qualifiedDividends != null ? String(data.qualifiedDividends) : undefined,
+            totalCapitalGainDistribution: data.totalCapitalGainDistribution != null ? String(data.totalCapitalGainDistribution) : undefined,
+            nondividendDistributions: data.nondividendDistributions != null ? String(data.nondividendDistributions) : undefined,
+            proceeds: data.proceeds != null ? String(data.proceeds) : undefined,
+            costBasis: data.costBasis != null ? String(data.costBasis) : undefined,
+            shortTermGainLoss: data.shortTermGainLoss != null ? String(data.shortTermGainLoss) : undefined,
+            longTermGainLoss: data.longTermGainLoss != null ? String(data.longTermGainLoss) : undefined,
+            grossDistribution: data.grossDistribution != null ? String(data.grossDistribution) : undefined,
+            taxableAmount: data.taxableAmount != null ? String(data.taxableAmount) : undefined,
+            distributionCode: data.distributionCode,
+            iraSepSimple: data.iraSepSimple,
+            unemploymentCompensation: data.unemploymentCompensation != null ? String(data.unemploymentCompensation) : undefined,
+            stateLocalRefund: data.stateLocalRefund != null ? String(data.stateLocalRefund) : undefined,
+            grossPaymentAmount: data.grossPaymentAmount != null ? String(data.grossPaymentAmount) : undefined,
+            fieldBoxes: Object.keys(fieldBoxes).length > 0 ? fieldBoxes : null,
+          });
+
+          await recalculateAndUpsertTaxReturn(params.data.clientId);
+        } else {
+          logger.warn({ docId: doc.id }, "1099 extraction did not produce a formType");
+        }
       }
 
       await db

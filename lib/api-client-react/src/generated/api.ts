@@ -22,13 +22,16 @@ import type {
   Client,
   CreateAdjustmentBody,
   CreateClientBody,
+  CreateForm1099DataBody,
   CreateW2DataBody,
   DashboardSummary,
+  Form1099Data,
   HealthStatus,
   TaxDocument,
   TaxReturn,
   UpdateAdjustmentBody,
   UpdateClientBody,
+  UpdateForm1099DataBody,
   UpdateTaxReturnBody,
   UpdateW2DataBody,
   UploadDocumentBody,
@@ -1138,6 +1141,383 @@ export const useDeleteW2Data = <
   TContext
 > => {
   return useMutation(getDeleteW2DataMutationOptions(options));
+};
+
+/**
+ * @summary List all 1099 records for a client
+ */
+export const getListForm1099DataUrl = (clientId: number) => {
+  return `/api/clients/${clientId}/form1099data`;
+};
+
+export const listForm1099Data = async (
+  clientId: number,
+  options?: RequestInit,
+): Promise<Form1099Data[]> => {
+  return customFetch<Form1099Data[]>(getListForm1099DataUrl(clientId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListForm1099DataQueryKey = (clientId: number) => {
+  return [`/api/clients/${clientId}/form1099data`] as const;
+};
+
+export const getListForm1099DataQueryOptions = <
+  TData = Awaited<ReturnType<typeof listForm1099Data>>,
+  TError = ErrorType<unknown>,
+>(
+  clientId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listForm1099Data>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListForm1099DataQueryKey(clientId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listForm1099Data>>
+  > = ({ signal }) => listForm1099Data(clientId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!clientId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listForm1099Data>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListForm1099DataQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listForm1099Data>>
+>;
+export type ListForm1099DataQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all 1099 records for a client
+ */
+
+export function useListForm1099Data<
+  TData = Awaited<ReturnType<typeof listForm1099Data>>,
+  TError = ErrorType<unknown>,
+>(
+  clientId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listForm1099Data>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListForm1099DataQueryOptions(clientId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Manually create a 1099 record
+ */
+export const getCreateForm1099DataUrl = (clientId: number) => {
+  return `/api/clients/${clientId}/form1099data`;
+};
+
+export const createForm1099Data = async (
+  clientId: number,
+  createForm1099DataBody: CreateForm1099DataBody,
+  options?: RequestInit,
+): Promise<Form1099Data> => {
+  return customFetch<Form1099Data>(getCreateForm1099DataUrl(clientId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createForm1099DataBody),
+  });
+};
+
+export const getCreateForm1099DataMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createForm1099Data>>,
+    TError,
+    { clientId: number; data: BodyType<CreateForm1099DataBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createForm1099Data>>,
+  TError,
+  { clientId: number; data: BodyType<CreateForm1099DataBody> },
+  TContext
+> => {
+  const mutationKey = ["createForm1099Data"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createForm1099Data>>,
+    { clientId: number; data: BodyType<CreateForm1099DataBody> }
+  > = (props) => {
+    const { clientId, data } = props ?? {};
+
+    return createForm1099Data(clientId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateForm1099DataMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createForm1099Data>>
+>;
+export type CreateForm1099DataMutationBody = BodyType<CreateForm1099DataBody>;
+export type CreateForm1099DataMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Manually create a 1099 record
+ */
+export const useCreateForm1099Data = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createForm1099Data>>,
+    TError,
+    { clientId: number; data: BodyType<CreateForm1099DataBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createForm1099Data>>,
+  TError,
+  { clientId: number; data: BodyType<CreateForm1099DataBody> },
+  TContext
+> => {
+  return useMutation(getCreateForm1099DataMutationOptions(options));
+};
+
+/**
+ * @summary Update a 1099 record
+ */
+export const getUpdateForm1099DataUrl = (
+  clientId: number,
+  form1099Id: number,
+) => {
+  return `/api/clients/${clientId}/form1099data/${form1099Id}`;
+};
+
+export const updateForm1099Data = async (
+  clientId: number,
+  form1099Id: number,
+  updateForm1099DataBody: UpdateForm1099DataBody,
+  options?: RequestInit,
+): Promise<Form1099Data> => {
+  return customFetch<Form1099Data>(
+    getUpdateForm1099DataUrl(clientId, form1099Id),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateForm1099DataBody),
+    },
+  );
+};
+
+export const getUpdateForm1099DataMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateForm1099Data>>,
+    TError,
+    {
+      clientId: number;
+      form1099Id: number;
+      data: BodyType<UpdateForm1099DataBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateForm1099Data>>,
+  TError,
+  {
+    clientId: number;
+    form1099Id: number;
+    data: BodyType<UpdateForm1099DataBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["updateForm1099Data"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateForm1099Data>>,
+    {
+      clientId: number;
+      form1099Id: number;
+      data: BodyType<UpdateForm1099DataBody>;
+    }
+  > = (props) => {
+    const { clientId, form1099Id, data } = props ?? {};
+
+    return updateForm1099Data(clientId, form1099Id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateForm1099DataMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateForm1099Data>>
+>;
+export type UpdateForm1099DataMutationBody = BodyType<UpdateForm1099DataBody>;
+export type UpdateForm1099DataMutationError = ErrorType<void>;
+
+/**
+ * @summary Update a 1099 record
+ */
+export const useUpdateForm1099Data = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateForm1099Data>>,
+    TError,
+    {
+      clientId: number;
+      form1099Id: number;
+      data: BodyType<UpdateForm1099DataBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateForm1099Data>>,
+  TError,
+  {
+    clientId: number;
+    form1099Id: number;
+    data: BodyType<UpdateForm1099DataBody>;
+  },
+  TContext
+> => {
+  return useMutation(getUpdateForm1099DataMutationOptions(options));
+};
+
+/**
+ * @summary Delete a 1099 record
+ */
+export const getDeleteForm1099DataUrl = (
+  clientId: number,
+  form1099Id: number,
+) => {
+  return `/api/clients/${clientId}/form1099data/${form1099Id}`;
+};
+
+export const deleteForm1099Data = async (
+  clientId: number,
+  form1099Id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteForm1099DataUrl(clientId, form1099Id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteForm1099DataMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteForm1099Data>>,
+    TError,
+    { clientId: number; form1099Id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteForm1099Data>>,
+  TError,
+  { clientId: number; form1099Id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteForm1099Data"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteForm1099Data>>,
+    { clientId: number; form1099Id: number }
+  > = (props) => {
+    const { clientId, form1099Id } = props ?? {};
+
+    return deleteForm1099Data(clientId, form1099Id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteForm1099DataMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteForm1099Data>>
+>;
+
+export type DeleteForm1099DataMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a 1099 record
+ */
+export const useDeleteForm1099Data = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteForm1099Data>>,
+    TError,
+    { clientId: number; form1099Id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteForm1099Data>>,
+  TError,
+  { clientId: number; form1099Id: number },
+  TContext
+> => {
+  return useMutation(getDeleteForm1099DataMutationOptions(options));
 };
 
 /**

@@ -330,6 +330,181 @@ export const DeleteW2DataParams = zod.object({
 });
 
 /**
+ * @summary List all 1099 records for a client
+ */
+export const ListForm1099DataParams = zod.object({
+  clientId: zod.coerce.number(),
+});
+
+export const ListForm1099DataResponseItem = zod.object({
+  id: zod.number(),
+  clientId: zod.number(),
+  documentId: zod.number().nullish(),
+  taxYear: zod.number(),
+  formType: zod.enum(["nec", "misc", "int", "div", "b", "r", "g", "k"]),
+  payerName: zod.string().nullish(),
+  payerTin: zod.string().nullish(),
+  recipientTin: zod.string().nullish(),
+  federalTaxWithheld: zod.number().nullish(),
+  stateTaxWithheld: zod.number().nullish(),
+  stateCode: zod.string().nullish(),
+  nonemployeeCompensation: zod.number().nullish(),
+  rents: zod.number().nullish(),
+  royalties: zod.number().nullish(),
+  otherIncome: zod.number().nullish(),
+  fishingBoatProceeds: zod.number().nullish(),
+  medicalAndHealthcare: zod.number().nullish(),
+  interestIncome: zod.number().nullish(),
+  earlyWithdrawalPenalty: zod.number().nullish(),
+  usTreasuryInterest: zod.number().nullish(),
+  taxExemptInterest: zod.number().nullish(),
+  ordinaryDividends: zod.number().nullish(),
+  qualifiedDividends: zod.number().nullish(),
+  totalCapitalGainDistribution: zod.number().nullish(),
+  nondividendDistributions: zod.number().nullish(),
+  proceeds: zod.number().nullish(),
+  costBasis: zod.number().nullish(),
+  shortTermGainLoss: zod.number().nullish(),
+  longTermGainLoss: zod.number().nullish(),
+  grossDistribution: zod.number().nullish(),
+  taxableAmount: zod.number().nullish(),
+  distributionCode: zod.string().nullish(),
+  iraSepSimple: zod.string().nullish(),
+  unemploymentCompensation: zod.number().nullish(),
+  stateLocalRefund: zod.number().nullish(),
+  grossPaymentAmount: zod.number().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+export const ListForm1099DataResponse = zod.array(ListForm1099DataResponseItem);
+
+/**
+ * @summary Manually create a 1099 record
+ */
+export const CreateForm1099DataParams = zod.object({
+  clientId: zod.coerce.number(),
+});
+
+export const CreateForm1099DataBody = zod.object({
+  taxYear: zod.number(),
+  formType: zod.enum(["nec", "misc", "int", "div", "b", "r", "g", "k"]),
+  payerName: zod.string().nullish(),
+  payerTin: zod.string().nullish(),
+  recipientTin: zod.string().nullish(),
+  federalTaxWithheld: zod.number().nullish(),
+  stateTaxWithheld: zod.number().nullish(),
+  stateCode: zod.string().nullish(),
+  nonemployeeCompensation: zod.number().nullish(),
+  rents: zod.number().nullish(),
+  royalties: zod.number().nullish(),
+  otherIncome: zod.number().nullish(),
+  interestIncome: zod.number().nullish(),
+  taxExemptInterest: zod.number().nullish(),
+  ordinaryDividends: zod.number().nullish(),
+  qualifiedDividends: zod.number().nullish(),
+  totalCapitalGainDistribution: zod.number().nullish(),
+  proceeds: zod.number().nullish(),
+  costBasis: zod.number().nullish(),
+  shortTermGainLoss: zod.number().nullish(),
+  longTermGainLoss: zod.number().nullish(),
+  grossDistribution: zod.number().nullish(),
+  taxableAmount: zod.number().nullish(),
+  distributionCode: zod.string().nullish(),
+  unemploymentCompensation: zod.number().nullish(),
+  stateLocalRefund: zod.number().nullish(),
+  grossPaymentAmount: zod.number().nullish(),
+});
+
+/**
+ * @summary Update a 1099 record
+ */
+export const UpdateForm1099DataParams = zod.object({
+  clientId: zod.coerce.number(),
+  form1099Id: zod.coerce.number(),
+});
+
+export const UpdateForm1099DataBody = zod.object({
+  taxYear: zod.number().optional(),
+  formType: zod
+    .enum(["nec", "misc", "int", "div", "b", "r", "g", "k"])
+    .optional(),
+  payerName: zod.string().nullish(),
+  payerTin: zod.string().nullish(),
+  recipientTin: zod.string().nullish(),
+  federalTaxWithheld: zod.number().nullish(),
+  stateTaxWithheld: zod.number().nullish(),
+  stateCode: zod.string().nullish(),
+  nonemployeeCompensation: zod.number().nullish(),
+  rents: zod.number().nullish(),
+  royalties: zod.number().nullish(),
+  otherIncome: zod.number().nullish(),
+  interestIncome: zod.number().nullish(),
+  taxExemptInterest: zod.number().nullish(),
+  ordinaryDividends: zod.number().nullish(),
+  qualifiedDividends: zod.number().nullish(),
+  totalCapitalGainDistribution: zod.number().nullish(),
+  proceeds: zod.number().nullish(),
+  costBasis: zod.number().nullish(),
+  shortTermGainLoss: zod.number().nullish(),
+  longTermGainLoss: zod.number().nullish(),
+  grossDistribution: zod.number().nullish(),
+  taxableAmount: zod.number().nullish(),
+  distributionCode: zod.string().nullish(),
+  unemploymentCompensation: zod.number().nullish(),
+  stateLocalRefund: zod.number().nullish(),
+  grossPaymentAmount: zod.number().nullish(),
+});
+
+export const UpdateForm1099DataResponse = zod.object({
+  id: zod.number(),
+  clientId: zod.number(),
+  documentId: zod.number().nullish(),
+  taxYear: zod.number(),
+  formType: zod.enum(["nec", "misc", "int", "div", "b", "r", "g", "k"]),
+  payerName: zod.string().nullish(),
+  payerTin: zod.string().nullish(),
+  recipientTin: zod.string().nullish(),
+  federalTaxWithheld: zod.number().nullish(),
+  stateTaxWithheld: zod.number().nullish(),
+  stateCode: zod.string().nullish(),
+  nonemployeeCompensation: zod.number().nullish(),
+  rents: zod.number().nullish(),
+  royalties: zod.number().nullish(),
+  otherIncome: zod.number().nullish(),
+  fishingBoatProceeds: zod.number().nullish(),
+  medicalAndHealthcare: zod.number().nullish(),
+  interestIncome: zod.number().nullish(),
+  earlyWithdrawalPenalty: zod.number().nullish(),
+  usTreasuryInterest: zod.number().nullish(),
+  taxExemptInterest: zod.number().nullish(),
+  ordinaryDividends: zod.number().nullish(),
+  qualifiedDividends: zod.number().nullish(),
+  totalCapitalGainDistribution: zod.number().nullish(),
+  nondividendDistributions: zod.number().nullish(),
+  proceeds: zod.number().nullish(),
+  costBasis: zod.number().nullish(),
+  shortTermGainLoss: zod.number().nullish(),
+  longTermGainLoss: zod.number().nullish(),
+  grossDistribution: zod.number().nullish(),
+  taxableAmount: zod.number().nullish(),
+  distributionCode: zod.string().nullish(),
+  iraSepSimple: zod.string().nullish(),
+  unemploymentCompensation: zod.number().nullish(),
+  stateLocalRefund: zod.number().nullish(),
+  grossPaymentAmount: zod.number().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a 1099 record
+ */
+export const DeleteForm1099DataParams = zod.object({
+  clientId: zod.coerce.number(),
+  form1099Id: zod.coerce.number(),
+});
+
+/**
  * @summary Get the current tax return calculation for a client
  */
 export const GetTaxReturnParams = zod.object({
@@ -358,6 +533,8 @@ export const GetTaxReturnResponse = zod.object({
   amtTax: zod.number().nullish(),
   niitTax: zod.number().nullish(),
   additionalChildTaxCredit: zod.number().nullish(),
+  capitalGainsTax: zod.number().nullish(),
+  preferentialIncome: zod.number().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -399,6 +576,8 @@ export const CalculateTaxReturnResponse = zod.object({
   amtTax: zod.number().nullish(),
   niitTax: zod.number().nullish(),
   additionalChildTaxCredit: zod.number().nullish(),
+  capitalGainsTax: zod.number().nullish(),
+  preferentialIncome: zod.number().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -448,6 +627,8 @@ export const UpdateTaxReturnResponse = zod.object({
   amtTax: zod.number().nullish(),
   niitTax: zod.number().nullish(),
   additionalChildTaxCredit: zod.number().nullish(),
+  capitalGainsTax: zod.number().nullish(),
+  preferentialIncome: zod.number().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),

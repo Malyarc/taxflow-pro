@@ -22,6 +22,7 @@ import {
   calculateNiit,
   calculateQbi,
   calculateAmt,
+  calculateFederalTaxWithCapitalGains,
   runTaxCalculation,
   resolveTaxYear,
 } from "../../artifacts/api-server/src/lib/taxCalculator";
@@ -537,6 +538,116 @@ header("L. ACTC (refundable Additional Child Tax Credit)");
   checkExact("ACTC: $10k tax owed > $4k CTC → full $4k non-refundable, $0 refundable", r.nonRefundablePortion, 4000);
   checkExact("  refundable = $0", r.refundableActc, 0);
   checkExact("  total applied = $4,000", r.appliedCredit, 4000);
+}
+
+// ── M. Capital Gains Tax (LTCG/QDIV) ────────────────────────────────────────
+header("M. Capital Gains Tax");
+// Single 2024, ordinary income $40k, LTCG $20k
+// Ordinary tax on 40k: 1160 + (40k-11600)*0.12 = 1160 + 3408 = 4568
+// LTCG: ordinary income $40k (under $47,025 0% bracket cap). LTCG fills from $40k to $60k.
+// Slice 0%: from 40k to 47025 = $7,025 × 0% = $0
+// Slice 15%: from 47025 to 60000 = $12,975 × 15% = $1,946.25
+// Total fed = 4568 + 1946.25 = 6514.25
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 40000,
+    longTermGains: 20000,
+    qualifiedDividends: 0,
+    shortTermGains: 0,
+    filingStatus: "single",
+    taxYear: 2024,
+  });
+  check("Single 2024: $40k ord + $20k LTCG → ordinary $4,568", r.ordinaryTaxableIncome, 40000);
+  check("LTCG tax: $7,025 × 0% + $12,975 × 15%", r.preferentialRateTax, 1946.25);
+  check("Total federal tax", r.totalFederalTax, 4568 + 1946.25);
+}
+
+// All LTCG falls in 0% bracket (under threshold)
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 30000,
+    longTermGains: 10000,
+    qualifiedDividends: 0,
+    shortTermGains: 0,
+    filingStatus: "single",
+    taxYear: 2024,
+  });
+  // LTCG fills 30k-40k; 40k still under 0% cap of 47025
+  check("Single 2024: $30k ord + $10k LTCG → all LTCG at 0%", r.preferentialRateTax, 0);
+}
+
+// MFJ 2024: $200k ordinary + $50k LTCG; LTCG fills 200k-250k, all in 15% bracket (over 94050)
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 200000,
+    longTermGains: 50000,
+    qualifiedDividends: 0,
+    shortTermGains: 0,
+    filingStatus: "married_filing_jointly",
+    taxYear: 2024,
+  });
+  check("MFJ 2024: $200k ord + $50k LTCG → 15% × 50k", r.preferentialRateTax, 50000 * 0.15);
+}
+
+// STCG taxed at ordinary rates (added to ordinary tax)
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 30000,
+    longTermGains: 0,
+    qualifiedDividends: 0,
+    shortTermGains: 10000,
+    filingStatus: "single",
+    taxYear: 2024,
+  });
+  // Ordinary on $40k: 1160 + (40k-11600)*0.12 = 1160 + 3408 = 4568
+  check("Single 2024: STCG taxed as ordinary", r.totalFederalTax, 4568);
+  checkExact("No preferential rate on STCG", r.preferentialRateTax, 0);
+}
+
+// Qualified dividends use LTCG rates
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 50000,
+    longTermGains: 0,
+    qualifiedDividends: 10000,
+    shortTermGains: 0,
+    filingStatus: "single",
+    taxYear: 2024,
+  });
+  // QDIV $10k stacks on $50k ordinary; first $50k is in ordinary, then QDIV from 50k-60k
+  // Threshold for 0% is $47,025 (single 2024)
+  // 50k > 47025 already, so entire QDIV is in 15% bracket
+  check("Single 2024: QDIV $10k at 15% (above 0% threshold)", r.preferentialRateTax, 1500);
+}
+
+// Top LTCG bracket: AGI $1M MFJ, $200k LTCG; 583,750 is the 15%/20% boundary
+// At $1M ordinary, all $200k LTCG falls in 20% bracket
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 1000000,
+    longTermGains: 200000,
+    qualifiedDividends: 0,
+    shortTermGains: 0,
+    filingStatus: "married_filing_jointly",
+    taxYear: 2024,
+  });
+  check("MFJ 2024: $1M ord + $200k LTCG all at 20%", r.preferentialRateTax, 200000 * 0.20);
+}
+
+// 2025 brackets: thresholds shift up
+{
+  const r = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: 30000,
+    longTermGains: 20000,
+    qualifiedDividends: 0,
+    shortTermGains: 0,
+    filingStatus: "single",
+    taxYear: 2025,
+  });
+  // 2025 single 0% cap: $48,350. LTCG fills 30k-50k.
+  // Slice 0%: 30k-48,350 = $18,350 × 0% = $0
+  // Slice 15%: 48,350 - 50,000 = $1,650 × 15% = $247.50
+  check("Single 2025: $30k ord + $20k LTCG", r.preferentialRateTax, 247.5);
 }
 
 // ── Summary ────────────────────────────────────────────────────────────────

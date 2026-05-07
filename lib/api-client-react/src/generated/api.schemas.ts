@@ -235,6 +235,231 @@ export interface UpdateW2DataBody {
   stateCode?: string | null;
 }
 
+export type Form1099DataFormType =
+  (typeof Form1099DataFormType)[keyof typeof Form1099DataFormType];
+
+export const Form1099DataFormType = {
+  nec: "nec",
+  misc: "misc",
+  int: "int",
+  div: "div",
+  b: "b",
+  r: "r",
+  g: "g",
+  k: "k",
+} as const;
+
+export interface Form1099Data {
+  id: number;
+  clientId: number;
+  /** @nullable */
+  documentId?: number | null;
+  taxYear: number;
+  formType: Form1099DataFormType;
+  /** @nullable */
+  payerName?: string | null;
+  /** @nullable */
+  payerTin?: string | null;
+  /** @nullable */
+  recipientTin?: string | null;
+  /** @nullable */
+  federalTaxWithheld?: number | null;
+  /** @nullable */
+  stateTaxWithheld?: number | null;
+  /** @nullable */
+  stateCode?: string | null;
+  /** @nullable */
+  nonemployeeCompensation?: number | null;
+  /** @nullable */
+  rents?: number | null;
+  /** @nullable */
+  royalties?: number | null;
+  /** @nullable */
+  otherIncome?: number | null;
+  /** @nullable */
+  fishingBoatProceeds?: number | null;
+  /** @nullable */
+  medicalAndHealthcare?: number | null;
+  /** @nullable */
+  interestIncome?: number | null;
+  /** @nullable */
+  earlyWithdrawalPenalty?: number | null;
+  /** @nullable */
+  usTreasuryInterest?: number | null;
+  /** @nullable */
+  taxExemptInterest?: number | null;
+  /** @nullable */
+  ordinaryDividends?: number | null;
+  /** @nullable */
+  qualifiedDividends?: number | null;
+  /** @nullable */
+  totalCapitalGainDistribution?: number | null;
+  /** @nullable */
+  nondividendDistributions?: number | null;
+  /** @nullable */
+  proceeds?: number | null;
+  /** @nullable */
+  costBasis?: number | null;
+  /** @nullable */
+  shortTermGainLoss?: number | null;
+  /** @nullable */
+  longTermGainLoss?: number | null;
+  /** @nullable */
+  grossDistribution?: number | null;
+  /** @nullable */
+  taxableAmount?: number | null;
+  /** @nullable */
+  distributionCode?: string | null;
+  /** @nullable */
+  iraSepSimple?: string | null;
+  /** @nullable */
+  unemploymentCompensation?: number | null;
+  /** @nullable */
+  stateLocalRefund?: number | null;
+  /** @nullable */
+  grossPaymentAmount?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CreateForm1099DataBodyFormType =
+  (typeof CreateForm1099DataBodyFormType)[keyof typeof CreateForm1099DataBodyFormType];
+
+export const CreateForm1099DataBodyFormType = {
+  nec: "nec",
+  misc: "misc",
+  int: "int",
+  div: "div",
+  b: "b",
+  r: "r",
+  g: "g",
+  k: "k",
+} as const;
+
+export interface CreateForm1099DataBody {
+  taxYear: number;
+  formType: CreateForm1099DataBodyFormType;
+  /** @nullable */
+  payerName?: string | null;
+  /** @nullable */
+  payerTin?: string | null;
+  /** @nullable */
+  recipientTin?: string | null;
+  /** @nullable */
+  federalTaxWithheld?: number | null;
+  /** @nullable */
+  stateTaxWithheld?: number | null;
+  /** @nullable */
+  stateCode?: string | null;
+  /** @nullable */
+  nonemployeeCompensation?: number | null;
+  /** @nullable */
+  rents?: number | null;
+  /** @nullable */
+  royalties?: number | null;
+  /** @nullable */
+  otherIncome?: number | null;
+  /** @nullable */
+  interestIncome?: number | null;
+  /** @nullable */
+  taxExemptInterest?: number | null;
+  /** @nullable */
+  ordinaryDividends?: number | null;
+  /** @nullable */
+  qualifiedDividends?: number | null;
+  /** @nullable */
+  totalCapitalGainDistribution?: number | null;
+  /** @nullable */
+  proceeds?: number | null;
+  /** @nullable */
+  costBasis?: number | null;
+  /** @nullable */
+  shortTermGainLoss?: number | null;
+  /** @nullable */
+  longTermGainLoss?: number | null;
+  /** @nullable */
+  grossDistribution?: number | null;
+  /** @nullable */
+  taxableAmount?: number | null;
+  /** @nullable */
+  distributionCode?: string | null;
+  /** @nullable */
+  unemploymentCompensation?: number | null;
+  /** @nullable */
+  stateLocalRefund?: number | null;
+  /** @nullable */
+  grossPaymentAmount?: number | null;
+}
+
+export type UpdateForm1099DataBodyFormType =
+  (typeof UpdateForm1099DataBodyFormType)[keyof typeof UpdateForm1099DataBodyFormType];
+
+export const UpdateForm1099DataBodyFormType = {
+  nec: "nec",
+  misc: "misc",
+  int: "int",
+  div: "div",
+  b: "b",
+  r: "r",
+  g: "g",
+  k: "k",
+} as const;
+
+export interface UpdateForm1099DataBody {
+  taxYear?: number;
+  formType?: UpdateForm1099DataBodyFormType;
+  /** @nullable */
+  payerName?: string | null;
+  /** @nullable */
+  payerTin?: string | null;
+  /** @nullable */
+  recipientTin?: string | null;
+  /** @nullable */
+  federalTaxWithheld?: number | null;
+  /** @nullable */
+  stateTaxWithheld?: number | null;
+  /** @nullable */
+  stateCode?: string | null;
+  /** @nullable */
+  nonemployeeCompensation?: number | null;
+  /** @nullable */
+  rents?: number | null;
+  /** @nullable */
+  royalties?: number | null;
+  /** @nullable */
+  otherIncome?: number | null;
+  /** @nullable */
+  interestIncome?: number | null;
+  /** @nullable */
+  taxExemptInterest?: number | null;
+  /** @nullable */
+  ordinaryDividends?: number | null;
+  /** @nullable */
+  qualifiedDividends?: number | null;
+  /** @nullable */
+  totalCapitalGainDistribution?: number | null;
+  /** @nullable */
+  proceeds?: number | null;
+  /** @nullable */
+  costBasis?: number | null;
+  /** @nullable */
+  shortTermGainLoss?: number | null;
+  /** @nullable */
+  longTermGainLoss?: number | null;
+  /** @nullable */
+  grossDistribution?: number | null;
+  /** @nullable */
+  taxableAmount?: number | null;
+  /** @nullable */
+  distributionCode?: string | null;
+  /** @nullable */
+  unemploymentCompensation?: number | null;
+  /** @nullable */
+  stateLocalRefund?: number | null;
+  /** @nullable */
+  grossPaymentAmount?: number | null;
+}
+
 export interface TaxReturn {
   id: number;
   clientId: number;
@@ -275,6 +500,10 @@ export interface TaxReturn {
   niitTax?: number | null;
   /** @nullable */
   additionalChildTaxCredit?: number | null;
+  /** @nullable */
+  capitalGainsTax?: number | null;
+  /** @nullable */
+  preferentialIncome?: number | null;
   /** @nullable */
   notes?: string | null;
   createdAt: string;

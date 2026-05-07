@@ -289,6 +289,101 @@ paths:
         "204":
           description: Deleted
 
+  # ── 1099 Forms ────────────────────────────────────────────────────────────
+  /clients/{clientId}/form1099data:
+    get:
+      operationId: listForm1099Data
+      tags: [w2data]
+      summary: List all 1099 records for a client
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of 1099 records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Form1099Data"
+    post:
+      operationId: createForm1099Data
+      tags: [w2data]
+      summary: Manually create a 1099 record
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateForm1099DataBody"
+      responses:
+        "201":
+          description: Created 1099 record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Form1099Data"
+
+  /clients/{clientId}/form1099data/{form1099Id}:
+    patch:
+      operationId: updateForm1099Data
+      tags: [w2data]
+      summary: Update a 1099 record
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: form1099Id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateForm1099DataBody"
+      responses:
+        "200":
+          description: Updated 1099 record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Form1099Data"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteForm1099Data
+      tags: [w2data]
+      summary: Delete a 1099 record
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: form1099Id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
   # ── Tax Returns ───────────────────────────────────────────────────────────
   /clients/{clientId}/tax-return:
     get:
@@ -721,6 +816,210 @@ components:
         stateCode:
           type: ["string", "null"]
 
+    # ── Form 1099 Data ───────────────────────────────────────────────────────
+    Form1099Data:
+      type: object
+      required: [id, clientId, taxYear, formType, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        clientId:
+          type: integer
+        documentId:
+          type: ["integer", "null"]
+        taxYear:
+          type: integer
+        formType:
+          type: string
+          enum: [nec, misc, int, div, b, r, g, k]
+        payerName:
+          type: ["string", "null"]
+        payerTin:
+          type: ["string", "null"]
+        recipientTin:
+          type: ["string", "null"]
+        federalTaxWithheld:
+          type: ["number", "null"]
+        stateTaxWithheld:
+          type: ["number", "null"]
+        stateCode:
+          type: ["string", "null"]
+        nonemployeeCompensation:
+          type: ["number", "null"]
+        rents:
+          type: ["number", "null"]
+        royalties:
+          type: ["number", "null"]
+        otherIncome:
+          type: ["number", "null"]
+        fishingBoatProceeds:
+          type: ["number", "null"]
+        medicalAndHealthcare:
+          type: ["number", "null"]
+        interestIncome:
+          type: ["number", "null"]
+        earlyWithdrawalPenalty:
+          type: ["number", "null"]
+        usTreasuryInterest:
+          type: ["number", "null"]
+        taxExemptInterest:
+          type: ["number", "null"]
+        ordinaryDividends:
+          type: ["number", "null"]
+        qualifiedDividends:
+          type: ["number", "null"]
+        totalCapitalGainDistribution:
+          type: ["number", "null"]
+        nondividendDistributions:
+          type: ["number", "null"]
+        proceeds:
+          type: ["number", "null"]
+        costBasis:
+          type: ["number", "null"]
+        shortTermGainLoss:
+          type: ["number", "null"]
+        longTermGainLoss:
+          type: ["number", "null"]
+        grossDistribution:
+          type: ["number", "null"]
+        taxableAmount:
+          type: ["number", "null"]
+        distributionCode:
+          type: ["string", "null"]
+        iraSepSimple:
+          type: ["string", "null"]
+        unemploymentCompensation:
+          type: ["number", "null"]
+        stateLocalRefund:
+          type: ["number", "null"]
+        grossPaymentAmount:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateForm1099DataBody:
+      type: object
+      required: [taxYear, formType]
+      properties:
+        taxYear:
+          type: integer
+        formType:
+          type: string
+          enum: [nec, misc, int, div, b, r, g, k]
+        payerName:
+          type: ["string", "null"]
+        payerTin:
+          type: ["string", "null"]
+        recipientTin:
+          type: ["string", "null"]
+        federalTaxWithheld:
+          type: ["number", "null"]
+        stateTaxWithheld:
+          type: ["number", "null"]
+        stateCode:
+          type: ["string", "null"]
+        nonemployeeCompensation:
+          type: ["number", "null"]
+        rents:
+          type: ["number", "null"]
+        royalties:
+          type: ["number", "null"]
+        otherIncome:
+          type: ["number", "null"]
+        interestIncome:
+          type: ["number", "null"]
+        taxExemptInterest:
+          type: ["number", "null"]
+        ordinaryDividends:
+          type: ["number", "null"]
+        qualifiedDividends:
+          type: ["number", "null"]
+        totalCapitalGainDistribution:
+          type: ["number", "null"]
+        proceeds:
+          type: ["number", "null"]
+        costBasis:
+          type: ["number", "null"]
+        shortTermGainLoss:
+          type: ["number", "null"]
+        longTermGainLoss:
+          type: ["number", "null"]
+        grossDistribution:
+          type: ["number", "null"]
+        taxableAmount:
+          type: ["number", "null"]
+        distributionCode:
+          type: ["string", "null"]
+        unemploymentCompensation:
+          type: ["number", "null"]
+        stateLocalRefund:
+          type: ["number", "null"]
+        grossPaymentAmount:
+          type: ["number", "null"]
+
+    UpdateForm1099DataBody:
+      type: object
+      properties:
+        taxYear:
+          type: integer
+        formType:
+          type: string
+          enum: [nec, misc, int, div, b, r, g, k]
+        payerName:
+          type: ["string", "null"]
+        payerTin:
+          type: ["string", "null"]
+        recipientTin:
+          type: ["string", "null"]
+        federalTaxWithheld:
+          type: ["number", "null"]
+        stateTaxWithheld:
+          type: ["number", "null"]
+        stateCode:
+          type: ["string", "null"]
+        nonemployeeCompensation:
+          type: ["number", "null"]
+        rents:
+          type: ["number", "null"]
+        royalties:
+          type: ["number", "null"]
+        otherIncome:
+          type: ["number", "null"]
+        interestIncome:
+          type: ["number", "null"]
+        taxExemptInterest:
+          type: ["number", "null"]
+        ordinaryDividends:
+          type: ["number", "null"]
+        qualifiedDividends:
+          type: ["number", "null"]
+        totalCapitalGainDistribution:
+          type: ["number", "null"]
+        proceeds:
+          type: ["number", "null"]
+        costBasis:
+          type: ["number", "null"]
+        shortTermGainLoss:
+          type: ["number", "null"]
+        longTermGainLoss:
+          type: ["number", "null"]
+        grossDistribution:
+          type: ["number", "null"]
+        taxableAmount:
+          type: ["number", "null"]
+        distributionCode:
+          type: ["string", "null"]
+        unemploymentCompensation:
+          type: ["number", "null"]
+        stateLocalRefund:
+          type: ["number", "null"]
+        grossPaymentAmount:
+          type: ["number", "null"]
+
     # ── TaxReturn ────────────────────────────────────────────────────────────
     TaxReturn:
       type: object
@@ -767,6 +1066,10 @@ components:
         niitTax:
           type: ["number", "null"]
         additionalChildTaxCredit:
+          type: ["number", "null"]
+        capitalGainsTax:
+          type: ["number", "null"]
+        preferentialIncome:
           type: ["number", "null"]
         notes:
           type: ["string", "null"]

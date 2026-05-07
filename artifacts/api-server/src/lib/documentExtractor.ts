@@ -192,6 +192,168 @@ export async function extractW2DataFromFile(
   };
 }
 
+// ── 1099 extraction ─────────────────────────────────────────────────────────
+export type Form1099Type = "nec" | "misc" | "int" | "div" | "b" | "r" | "g" | "k";
+
+export interface Extracted1099Data {
+  formType?: Form1099Type;
+  payerName?: string;
+  payerTin?: string;
+  recipientTin?: string;
+  federalTaxWithheld?: number;
+  stateTaxWithheld?: number;
+  stateCode?: string;
+  // 1099-NEC
+  nonemployeeCompensation?: number;
+  // 1099-MISC
+  rents?: number;
+  royalties?: number;
+  otherIncome?: number;
+  fishingBoatProceeds?: number;
+  medicalAndHealthcare?: number;
+  // 1099-INT
+  interestIncome?: number;
+  earlyWithdrawalPenalty?: number;
+  usTreasuryInterest?: number;
+  taxExemptInterest?: number;
+  // 1099-DIV
+  ordinaryDividends?: number;
+  qualifiedDividends?: number;
+  totalCapitalGainDistribution?: number;
+  nondividendDistributions?: number;
+  // 1099-B
+  proceeds?: number;
+  costBasis?: number;
+  shortTermGainLoss?: number;
+  longTermGainLoss?: number;
+  // 1099-R
+  grossDistribution?: number;
+  taxableAmount?: number;
+  distributionCode?: string;
+  iraSepSimple?: string;
+  // 1099-G
+  unemploymentCompensation?: number;
+  stateLocalRefund?: number;
+  // 1099-K
+  grossPaymentAmount?: number;
+}
+
+export interface Extraction1099Result {
+  data: Extracted1099Data;
+  boxes: Record<string, BoundingBox>;
+}
+
+const FORM_1099_PROMPT = `You are a tax document extraction specialist. The image is a 1099 form. First, IDENTIFY which 1099 type it is from the form's header (1099-NEC, 1099-MISC, 1099-INT, 1099-DIV, 1099-B, 1099-R, 1099-G, or 1099-K). Then extract the relevant fields.
+
+Return ONLY a valid JSON object with two top-level keys: "data" and "boxes".
+
+"data" must include "formType" (one of: "nec", "misc", "int", "div", "b", "r", "g", "k") and the relevant fields for that form type. Common fields across all forms:
+{
+  "formType": "nec" | "misc" | "int" | "div" | "b" | "r" | "g" | "k",
+  "payerName": string or null,
+  "payerTin": string or null (XX-XXXXXXX format),
+  "recipientTin": string or null (last 4 only if partial),
+  "federalTaxWithheld": number or null,
+  "stateTaxWithheld": number or null,
+  "stateCode": string or null (2-letter)
+}
+
+Per-form fields (only include the relevant ones based on formType):
+  nec: { "nonemployeeCompensation": number }
+  misc: { "rents", "royalties", "otherIncome", "fishingBoatProceeds", "medicalAndHealthcare" }
+  int: { "interestIncome", "earlyWithdrawalPenalty", "usTreasuryInterest", "taxExemptInterest" }
+  div: { "ordinaryDividends", "qualifiedDividends", "totalCapitalGainDistribution", "nondividendDistributions" }
+  b: { "proceeds", "costBasis", "shortTermGainLoss", "longTermGainLoss" } — sum if there are multiple lots
+  r: { "grossDistribution", "taxableAmount", "distributionCode", "iraSepSimple" }
+  g: { "unemploymentCompensation", "stateLocalRefund" }
+  k: { "grossPaymentAmount" }
+
+"boxes" contains optional bounding boxes (0-1000 normalized) for each field that was found:
+{
+  "nonemployeeCompensation": {"ymin": 230, "xmin": 120, "ymax": 280, "xmax": 800},
+  ...
+}
+
+Final response format:
+{
+  "data": { "formType": "...", ...fields },
+  "boxes": { ... }
+}`;
+
+export async function extract1099DataFromFile(
+  base64Content: string,
+  mimeType: string,
+): Promise<Extraction1099Result> {
+  if (!aiEnabled) return { data: {}, boxes: {} };
+
+  const response = await openai.chat.completions.create({
+    model: aiModel,
+    max_completion_tokens: 4096,
+    messages: [
+      { role: "system", content: FORM_1099_PROMPT },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Content}` } },
+          { type: "text", text: "Identify the 1099 type and extract relevant fields with bounding boxes." },
+        ],
+      },
+    ],
+  });
+
+  const parsed = extractJsonObject(response.choices[0]?.message?.content ?? "{}") as Record<string, unknown>;
+  const dataPart = parsed.data && typeof parsed.data === "object" ? parsed.data : parsed;
+  const boxesPart = parsed.boxes && typeof parsed.boxes === "object" ? parsed.boxes : {};
+
+  return {
+    data: normalize1099Data(dataPart),
+    boxes: normalizeBoxes(boxesPart),
+  };
+}
+
+function normalize1099Data(parsed: unknown): Extracted1099Data {
+  if (!parsed || typeof parsed !== "object") return {};
+  const obj = parsed as Record<string, unknown>;
+  const out: Extracted1099Data = {};
+
+  // formType
+  if (typeof obj.formType === "string") {
+    const t = obj.formType.toLowerCase().replace(/^1099-?/, "");
+    if (["nec", "misc", "int", "div", "b", "r", "g", "k"].includes(t)) {
+      out.formType = t as Form1099Type;
+    }
+  }
+
+  const stringFields: Array<keyof Extracted1099Data> = [
+    "payerName", "payerTin", "recipientTin", "stateCode", "distributionCode", "iraSepSimple",
+  ];
+  const numericFields: Array<keyof Extracted1099Data> = [
+    "federalTaxWithheld", "stateTaxWithheld",
+    "nonemployeeCompensation",
+    "rents", "royalties", "otherIncome", "fishingBoatProceeds", "medicalAndHealthcare",
+    "interestIncome", "earlyWithdrawalPenalty", "usTreasuryInterest", "taxExemptInterest",
+    "ordinaryDividends", "qualifiedDividends", "totalCapitalGainDistribution", "nondividendDistributions",
+    "proceeds", "costBasis", "shortTermGainLoss", "longTermGainLoss",
+    "grossDistribution", "taxableAmount",
+    "unemploymentCompensation", "stateLocalRefund",
+    "grossPaymentAmount",
+  ];
+  for (const f of stringFields) {
+    if (typeof obj[f] === "string" && (obj[f] as string).trim()) {
+      (out as Record<string, string>)[f] = (obj[f] as string).trim();
+    }
+  }
+  for (const f of numericFields) {
+    const v = obj[f];
+    if (typeof v === "number" && Number.isFinite(v)) (out as Record<string, number>)[f] = v;
+    else if (typeof v === "string") {
+      const n = Number(v.replace(/[$,]/g, ""));
+      if (Number.isFinite(n)) (out as Record<string, number>)[f] = n;
+    }
+  }
+  return out;
+}
+
 export function detectMimeType(fileName: string): string {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".pdf")) return "application/pdf";

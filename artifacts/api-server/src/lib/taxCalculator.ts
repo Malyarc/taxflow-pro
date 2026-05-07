@@ -396,6 +396,133 @@ export function getStandardDeduction(filingStatus: string, taxYear?: number): nu
   return getFederalStandardDeduction(filingStatus, taxYear ?? LATEST_YEAR);
 }
 
+// ── Long-term capital gains + qualified dividends tax (preferential rates) ──
+// LTCG and qualified dividends are taxed at 0% / 15% / 20% based on taxable
+// income brackets (different from ordinary brackets). Short-term gains and
+// non-qualified dividends use the ordinary brackets.
+// Sources: IRC §1(h); thresholds from IRS Rev. Proc. 2023-34 (2024) and 2024-40 (2025).
+const LTCG_BRACKETS: Record<TaxYear, Record<string, Array<{ upTo: number; rate: number }>>> = {
+  2024: {
+    single: [
+      { upTo: 47025, rate: 0 },
+      { upTo: 518900, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    married_filing_jointly: [
+      { upTo: 94050, rate: 0 },
+      { upTo: 583750, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    married_filing_separately: [
+      { upTo: 47025, rate: 0 },
+      { upTo: 291875, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    head_of_household: [
+      { upTo: 63000, rate: 0 },
+      { upTo: 551350, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    qualifying_widow: [
+      { upTo: 94050, rate: 0 },
+      { upTo: 583750, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+  },
+  2025: {
+    single: [
+      { upTo: 48350, rate: 0 },
+      { upTo: 533400, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    married_filing_jointly: [
+      { upTo: 96700, rate: 0 },
+      { upTo: 600050, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    married_filing_separately: [
+      { upTo: 48350, rate: 0 },
+      { upTo: 300000, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    head_of_household: [
+      { upTo: 64750, rate: 0 },
+      { upTo: 566700, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+    qualifying_widow: [
+      { upTo: 96700, rate: 0 },
+      { upTo: 600050, rate: 0.15 },
+      { upTo: Infinity, rate: 0.20 },
+    ],
+  },
+};
+
+export interface CapitalGainsCalculation {
+  ordinaryTaxableIncome: number;
+  longTermGains: number;
+  shortTermGains: number;
+  qualifiedDividends: number;
+  /** Tax on the LTCG + qualified dividends using preferential brackets */
+  preferentialRateTax: number;
+  /** Total combined fed tax = ordinary tax (incl. STCG) + preferential rate tax */
+  totalFederalTax: number;
+}
+
+/**
+ * Compute federal tax on a return that includes both ordinary income and
+ * preferential-rate items (LTCG + qualified dividends).
+ *
+ * Method: STCG is added to ordinary income (taxed at ordinary rates).
+ * LTCG and qualified dividends fill brackets ABOVE ordinary income on the
+ * preferential schedule.
+ */
+export function calculateFederalTaxWithCapitalGains(params: {
+  ordinaryTaxableIncome: number;
+  longTermGains: number;
+  qualifiedDividends: number;
+  shortTermGains: number;
+  filingStatus: string;
+  taxYear: number;
+}): CapitalGainsCalculation {
+  const year = resolveTaxYear(params.taxYear);
+  const status = params.filingStatus in FEDERAL_BRACKETS[year] ? params.filingStatus : "single";
+  const ltcgIncluded = Math.max(0, params.longTermGains) + Math.max(0, params.qualifiedDividends);
+  const ordinaryWithStcg = Math.max(0, params.ordinaryTaxableIncome) + Math.max(0, params.shortTermGains);
+
+  // Ordinary tax on the ordinary-income portion (incl. STCG)
+  const ordinaryTax = calculateFederalTax(ordinaryWithStcg, status, year);
+
+  // Preferential tax: LTCG/qualified dividends "stack" on top of ordinary income.
+  // For each LTCG bracket, the portion of LTCG that falls in [max(ordinaryWithStcg, prevCap), bracketCap]
+  // is taxed at that bracket's rate.
+  const ltcgBrackets = LTCG_BRACKETS[year][status];
+  let prefTax = 0;
+  let prevCap = 0;
+  let ltcgRemaining = ltcgIncluded;
+  for (const bracket of ltcgBrackets) {
+    if (ltcgRemaining <= 0) break;
+    // The taxable portion within this bracket is the slice above max(ordinaryWithStcg, prevCap)
+    const lower = Math.max(ordinaryWithStcg, prevCap);
+    const upper = Math.min(ordinaryWithStcg + ltcgIncluded, bracket.upTo);
+    const slice = Math.max(0, upper - lower);
+    if (slice > 0) {
+      prefTax += slice * bracket.rate;
+      ltcgRemaining -= slice;
+    }
+    prevCap = bracket.upTo;
+  }
+
+  return {
+    ordinaryTaxableIncome: params.ordinaryTaxableIncome,
+    longTermGains: params.longTermGains,
+    shortTermGains: params.shortTermGains,
+    qualifiedDividends: params.qualifiedDividends,
+    preferentialRateTax: prefTax,
+    totalFederalTax: ordinaryTax + prefTax,
+  };
+}
+
 // ── Self-Employment Tax (Schedule SE) ──────────────────────────────────────
 // 2024 + 2025: 15.3% combined rate (12.4% Social Security + 2.9% Medicare).
 // SS portion only applies up to the wage base ($168,600 in 2024, $176,100 in 2025).

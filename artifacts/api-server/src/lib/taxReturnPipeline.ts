@@ -13,6 +13,7 @@ import {
   db,
   clientsTable,
   w2DataTable,
+  form1099DataTable,
   adjustmentsTable,
   taxReturnsTable,
 } from "@workspace/db";
@@ -24,11 +25,13 @@ import {
   calculateQbi,
   calculateAmt,
   calculateFederalTax,
+  calculateFederalTaxWithCapitalGains,
   type CtcCalculation,
   type SeTaxCalculation,
   type NiitCalculation,
   type QbiCalculation,
   type AmtCalculation,
+  type CapitalGainsCalculation,
 } from "./taxCalculator";
 import { logger } from "./logger";
 
@@ -42,6 +45,128 @@ export interface RecalcOverrides {
 function toNum(val: string | null | undefined): number {
   if (val == null) return 0;
   return Number(val) || 0;
+}
+
+export interface Form1099Summary {
+  /** Self-employment income (1099-NEC) */
+  seIncome: number;
+  /** Ordinary interest (1099-INT minus tax-exempt portion) */
+  interestIncome: number;
+  /** Ordinary (non-qualified) dividends from 1099-DIV */
+  ordinaryDividends: number;
+  /** Qualified dividends — LTCG rates */
+  qualifiedDividends: number;
+  /** Long-term capital gains (1099-B + 1099-DIV cap gain distribution) */
+  longTermCapitalGains: number;
+  /** Short-term capital gains (1099-B) */
+  shortTermCapitalGains: number;
+  /** Retirement income (1099-R taxable amount) */
+  retirementIncome: number;
+  /** Unemployment + state refund (1099-G) */
+  unemploymentIncome: number;
+  /** 1099-K gross payment (treated as additional income unless adjusted) */
+  paymentCardIncome: number;
+  /** 1099-MISC: rents + royalties + other income */
+  miscIncome: number;
+  /** Federal withholding across all 1099s */
+  federalWithheld: number;
+  /** State withholding across all 1099s */
+  stateWithheld: number;
+  /** Total ordinary income from all 1099 sources (excludes LTCG/qualifed dividends) */
+  totalOrdinaryIncome: number;
+  /** All investment income (drives NIIT) */
+  totalInvestmentIncome: number;
+  /** Number of 1099 records included */
+  recordCount: number;
+}
+
+function summarize1099s(records: Array<typeof form1099DataTable.$inferSelect>): Form1099Summary {
+  const sum = (key: keyof typeof records[number]) =>
+    records.reduce((s, r) => s + toNum(r[key] as string | null), 0);
+
+  const necRecords = records.filter((r) => r.formType === "nec");
+  const miscRecords = records.filter((r) => r.formType === "misc");
+  const intRecords = records.filter((r) => r.formType === "int");
+  const divRecords = records.filter((r) => r.formType === "div");
+  const bRecords = records.filter((r) => r.formType === "b");
+  const rRecords = records.filter((r) => r.formType === "r");
+  const gRecords = records.filter((r) => r.formType === "g");
+  const kRecords = records.filter((r) => r.formType === "k");
+
+  const seIncome = necRecords.reduce((s, r) => s + toNum(r.nonemployeeCompensation), 0);
+
+  // Interest: total minus tax-exempt portion
+  const interestIncome = intRecords.reduce(
+    (s, r) => s + Math.max(0, toNum(r.interestIncome) - toNum(r.taxExemptInterest)),
+    0,
+  );
+
+  const qualifiedDividends = divRecords.reduce((s, r) => s + toNum(r.qualifiedDividends), 0);
+  // Ordinary dividends per IRS Form 1040 = box 1a - box 1b (qualified portion subtracted)
+  const ordinaryDividends = divRecords.reduce(
+    (s, r) => s + Math.max(0, toNum(r.ordinaryDividends) - toNum(r.qualifiedDividends)),
+    0,
+  );
+  const cgDistributions = divRecords.reduce((s, r) => s + toNum(r.totalCapitalGainDistribution), 0);
+
+  // 1099-B: short-term and long-term gain/loss
+  const stcgFromB = bRecords.reduce((s, r) => s + toNum(r.shortTermGainLoss), 0);
+  const ltcgFromB = bRecords.reduce((s, r) => s + toNum(r.longTermGainLoss), 0);
+
+  const longTermCapitalGains = ltcgFromB + cgDistributions;
+  const shortTermCapitalGains = stcgFromB;
+
+  const retirementIncome = rRecords.reduce(
+    (s, r) => s + toNum(r.taxableAmount ?? r.grossDistribution),
+    0,
+  );
+  const unemploymentIncome = gRecords.reduce(
+    (s, r) => s + toNum(r.unemploymentCompensation) + toNum(r.stateLocalRefund),
+    0,
+  );
+  const paymentCardIncome = kRecords.reduce((s, r) => s + toNum(r.grossPaymentAmount), 0);
+  const miscIncome = miscRecords.reduce(
+    (s, r) =>
+      s +
+      toNum(r.rents) +
+      toNum(r.royalties) +
+      toNum(r.otherIncome) +
+      toNum(r.fishingBoatProceeds) +
+      toNum(r.medicalAndHealthcare),
+    0,
+  );
+
+  const federalWithheld = records.reduce((s, r) => s + toNum(r.federalTaxWithheld), 0);
+  const stateWithheld = records.reduce((s, r) => s + toNum(r.stateTaxWithheld), 0);
+
+  // Ordinary income from 1099s: includes everything taxed at ordinary rates
+  // (NEC handled separately — flows through SE tax pipeline; NEC also shows up as ordinary income).
+  // STCG is taxed at ordinary rates but gets stacked separately in the calc.
+  const totalOrdinaryIncome =
+    seIncome + miscIncome + interestIncome + ordinaryDividends + retirementIncome +
+    unemploymentIncome + paymentCardIncome;
+
+  // Investment income for NIIT: interest + dividends (all) + capital gains (all)
+  const totalInvestmentIncome =
+    interestIncome + ordinaryDividends + qualifiedDividends + longTermCapitalGains + shortTermCapitalGains;
+
+  return {
+    seIncome,
+    interestIncome,
+    ordinaryDividends,
+    qualifiedDividends,
+    longTermCapitalGains,
+    shortTermCapitalGains,
+    retirementIncome,
+    unemploymentIncome,
+    paymentCardIncome,
+    miscIncome,
+    federalWithheld,
+    stateWithheld,
+    totalOrdinaryIncome,
+    totalInvestmentIncome,
+    recordCount: records.length,
+  };
 }
 
 export interface ComputedTaxReturn {
@@ -75,15 +200,24 @@ export interface ComputedTaxReturn {
   amtTax: number;
   /** Refundable portion of CTC (Additional Child Tax Credit) */
   additionalChildTaxCredit: number;
+  /** Federal tax owed on long-term capital gains + qualified dividends (preferential rate) */
+  capitalGainsTax: number;
+  /** Long-term capital gains + qualified dividends (preferential-rate income) */
+  preferentialIncome: number;
+  /** Summary of all 1099 records included in this return */
+  form1099Summary: Form1099Summary;
   /** Detailed breakdowns for transparency */
   detail: {
     se: SeTaxCalculation;
     niit: NiitCalculation;
     qbi: QbiCalculation;
     amt: AmtCalculation;
+    capitalGains: CapitalGainsCalculation;
   };
   /** Number of W-2s included in the total wages */
   w2Count: number;
+  /** Number of 1099 records included */
+  form1099Count: number;
 }
 
 /**
@@ -123,14 +257,26 @@ export async function computeTaxReturn(
       and(eq(w2DataTable.clientId, clientId), eq(w2DataTable.taxYear, taxYear)),
     );
   const totalWages = w2Records.reduce((s, r) => s + toNum(r.wagesBox1), 0);
-  const totalFederalWithheld = w2Records.reduce(
+  const w2FederalWithheld = w2Records.reduce(
     (s, r) => s + toNum(r.federalTaxWithheldBox2),
     0,
   );
-  const totalStateWithheld = w2Records.reduce(
+  const w2StateWithheld = w2Records.reduce(
     (s, r) => s + toNum(r.stateTaxWithheldBox17),
     0,
   );
+
+  // 1099s for the requested year only
+  const form1099Records = await db
+    .select()
+    .from(form1099DataTable)
+    .where(
+      and(eq(form1099DataTable.clientId, clientId), eq(form1099DataTable.taxYear, taxYear)),
+    );
+  const form1099Summary = summarize1099s(form1099Records);
+
+  const totalFederalWithheld = w2FederalWithheld + form1099Summary.federalWithheld;
+  const totalStateWithheld = w2StateWithheld + form1099Summary.stateWithheld;
 
   const stateCode =
     (client.state && client.state.trim()) ||
@@ -155,22 +301,49 @@ export async function computeTaxReturn(
   const withholdingAdjustments = sumByType("withholding_adjustment");
   const otherDeductions = sumByType("other");
 
-  // ── New adjustment types (added with SE/NIIT/QBI/AMT support) ──
-  const seIncome = sumByType("self_employment_income");
-  const investmentIncome = sumByType("investment_income");
+  // ── Income from CPA adjustments + 1099s ──
+  const seIncomeFromAdj = sumByType("self_employment_income");
+  const investmentIncomeFromAdj = sumByType("investment_income");
   const qbiIncome = sumByType("qbi_income");
   const amtPreferences = sumByType("amt_preferences");
 
-  // SE tax — applies before AGI is finalized (1/2 deductible above the line)
-  const se = calculateSelfEmploymentTax(seIncome, taxYear);
+  // Combine CPA-entered SE income + 1099-NEC income
+  const totalSeIncome = seIncomeFromAdj + form1099Summary.seIncome;
+  // Combine CPA-entered investment income + 1099 investment income (interest, dividends, cap gains)
+  // Note: 1099 ordinary investment income (interest + ordinary dividends) goes to ordinary tax;
+  //       qualified dividends + LTCG go to preferential rates separately.
+  const totalInvestmentIncomeForNiit = investmentIncomeFromAdj + form1099Summary.totalInvestmentIncome;
 
-  const totalAdditionalIncome = additionalIncome + additionalIncomeAdjustments + seIncome + investmentIncome;
+  // SE tax — applies before AGI is finalized (1/2 deductible above the line)
+  const se = calculateSelfEmploymentTax(totalSeIncome, taxYear);
+
+  // Ordinary additional income that flows to ordinary tax brackets:
+  //   - User-supplied additionalIncome
+  //   - Adjustment "additional_income"
+  //   - SE income (also subject to SE tax)
+  //   - Adjustment "investment_income" (treated as ordinary unless flagged otherwise)
+  //   - 1099 ordinary income: interest, ordinary dividends, retirement, unemployment, 1099-K, 1099-MISC
+  // NOT included here: qualified dividends and LTCG (preferential rates),
+  //                    STCG (added separately so it can be taxed at ordinary rates correctly)
+  const ordinaryAdditionalIncome =
+    additionalIncome +
+    additionalIncomeAdjustments +
+    seIncomeFromAdj + // 1099-NEC seIncome counted via form1099Summary.seIncome below
+    investmentIncomeFromAdj +
+    form1099Summary.seIncome +
+    form1099Summary.interestIncome +
+    form1099Summary.ordinaryDividends +
+    form1099Summary.retirementIncome +
+    form1099Summary.unemploymentIncome +
+    form1099Summary.paymentCardIncome +
+    form1099Summary.miscIncome;
+
   const aboveTheLineAdjustments = deductionAdjustments + otherDeductions + se.deductibleHalf;
   const itemizedDeductions = additionalDeductions;
 
   const calc = runTaxCalculation({
     totalWages,
-    additionalIncome: totalAdditionalIncome,
+    additionalIncome: ordinaryAdditionalIncome,
     filingStatus: client.filingStatus,
     stateCode: stateCode ?? "CA",
     useItemizedDeductions,
@@ -185,14 +358,30 @@ export async function computeTaxReturn(
     taxableIncomeBeforeQbi: calc.taxableIncome,
   });
   const taxableAfterQbi = Math.max(0, calc.taxableIncome - qbi.finalDeduction);
-  // Recompute federal tax with the lower taxable income (only if QBI applies)
-  const regularFederalTax = qbi.finalDeduction > 0
-    ? calculateFederalTax(taxableAfterQbi, client.filingStatus, taxYear)
-    : calc.federalTaxLiability;
 
-  // AMT — alternative computation; final regular tax = max(regular, regular + AMT delta)
+  // Capital gains: LTCG + qualified dividends use preferential rates; STCG uses ordinary.
+  // Add LTCG + qualified dividends to taxable income for the preferential calculation.
+  const longTermGains = form1099Summary.longTermCapitalGains;
+  const shortTermGains = form1099Summary.shortTermCapitalGains;
+  const qualifiedDividends = form1099Summary.qualifiedDividends;
+  const preferentialIncome = longTermGains + qualifiedDividends;
+
+  // Compute federal tax: ordinary tax on (taxableAfterQbi + STCG) + preferential tax on (LTCG + QD)
+  const capGains = calculateFederalTaxWithCapitalGains({
+    ordinaryTaxableIncome: taxableAfterQbi,
+    longTermGains,
+    qualifiedDividends,
+    shortTermGains,
+    filingStatus: client.filingStatus,
+    taxYear,
+  });
+  const regularFederalTax = capGains.totalFederalTax;
+
+  // AMT — alternative computation; final regular tax = max(regular, regular + AMT delta).
+  // For AMT we use taxable income including capital gains (approximation — real AMT
+  // has separate cap-gains treatment that mirrors regular but on AMTI).
   const amt = calculateAmt({
-    taxableIncome: taxableAfterQbi,
+    taxableIncome: taxableAfterQbi + preferentialIncome + Math.max(0, shortTermGains),
     amtPreferences,
     filingStatus: client.filingStatus,
     regularTax: regularFederalTax,
@@ -200,8 +389,9 @@ export async function computeTaxReturn(
   });
 
   // NIIT — 3.8% on lesser of (investment income, AGI over threshold)
+  // Use 1099-derived investment income + manual adjustment investment income.
   const niit = calculateNiit({
-    investmentIncome,
+    investmentIncome: totalInvestmentIncomeForNiit,
     modifiedAgi: calc.adjustedGrossIncome,
     filingStatus: client.filingStatus,
   });
@@ -211,8 +401,8 @@ export async function computeTaxReturn(
     regularFederalTax + amt.amtTax + niit.niitTax + se.seTaxTotal;
 
   // CTC: refundable split based on tax owed before CTC.
-  // Tax-before-credit reference for CTC is regular + AMT (NIIT/SE don't reduce by CTC).
-  const earnedIncome = totalWages + Math.max(0, seIncome - se.deductibleHalf);
+  // Earned income for ACTC: wages + net SE earnings
+  const earnedIncome = totalWages + Math.max(0, totalSeIncome - se.deductibleHalf);
   const ctc = calculateChildTaxCredit({
     qualifyingChildren: client.dependentsUnder17 ?? 0,
     otherDependents: client.otherDependents ?? 0,
@@ -258,8 +448,12 @@ export async function computeTaxReturn(
     niitTax: niit.niitTax,
     amtTax: amt.amtTax,
     additionalChildTaxCredit: ctc.refundableActc,
-    detail: { se, niit, qbi, amt },
+    capitalGainsTax: capGains.preferentialRateTax,
+    preferentialIncome,
+    form1099Summary,
+    detail: { se, niit, qbi, amt, capitalGains: capGains },
     w2Count: w2Records.length,
+    form1099Count: form1099Records.length,
   };
 
   return { result, client };
@@ -309,6 +503,8 @@ export async function recalculateAndUpsertTaxReturn(
     amtTax: result.amtTax != null ? String(result.amtTax) : null,
     niitTax: result.niitTax != null ? String(result.niitTax) : null,
     additionalChildTaxCredit: result.additionalChildTaxCredit != null ? String(result.additionalChildTaxCredit) : null,
+    capitalGainsTax: result.capitalGainsTax != null ? String(result.capitalGainsTax) : null,
+    preferentialIncome: result.preferentialIncome != null ? String(result.preferentialIncome) : null,
   };
 
   if (existing) {

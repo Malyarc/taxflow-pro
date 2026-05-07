@@ -27,6 +27,8 @@ export const taxReturnsTable = pgTable(
     amtTax: numeric("amt_tax", { precision: 12, scale: 2 }),
     niitTax: numeric("niit_tax", { precision: 12, scale: 2 }),
     additionalChildTaxCredit: numeric("additional_child_tax_credit", { precision: 12, scale: 2 }),
+    capitalGainsTax: numeric("capital_gains_tax", { precision: 12, scale: 2 }),
+    preferentialIncome: numeric("preferential_income", { precision: 12, scale: 2 }),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

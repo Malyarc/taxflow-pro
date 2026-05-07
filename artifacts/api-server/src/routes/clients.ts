@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
-import { db, clientsTable, taxReturnsTable, w2DataTable, adjustmentsTable, taxDocumentsTable } from "@workspace/db";
+import { db, clientsTable, taxReturnsTable, w2DataTable, form1099DataTable, adjustmentsTable, taxDocumentsTable } from "@workspace/db";
 import {
   CreateClientBody,
   UpdateClientBody,
@@ -116,6 +116,7 @@ router.delete("/clients/:id", async (req, res): Promise<void> => {
   await db.delete(taxReturnsTable).where(eq(taxReturnsTable.clientId, id));
   await db.delete(adjustmentsTable).where(eq(adjustmentsTable.clientId, id));
   await db.delete(w2DataTable).where(eq(w2DataTable.clientId, id));
+  await db.delete(form1099DataTable).where(eq(form1099DataTable.clientId, id));
   await db.delete(taxDocumentsTable).where(eq(taxDocumentsTable.clientId, id));
 
   const [client] = await db
