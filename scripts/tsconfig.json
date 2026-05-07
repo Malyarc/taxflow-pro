@@ -6,5 +6,11 @@
     "noEmit": true
   },
   "include": ["src"],
-  "exclude": ["src/tax-engine-tests.ts", "src/tax-engine-integration-tests.ts", "src/tax-engine-new-features-tests.ts"]
+  "exclude": [
+    "src/tax-engine-tests.ts",
+    "src/tax-engine-integration-tests.ts",
+    "src/tax-engine-new-features-tests.ts",
+    "src/tax-engine-deep-tests.ts",
+    "src/tax-engine-deep-integration-tests.ts"
+  ]
 }

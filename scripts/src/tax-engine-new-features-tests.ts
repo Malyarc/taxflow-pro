@@ -213,8 +213,8 @@ async function run() {
     await new Promise((r) => setTimeout(r, 300));
 
     const ret = await api<any>(`/clients/${cid}/tax-return`);
-    // Wages 60k + LTCG 20k → totalIncome 80k (LTCG counts as income but taxed preferentially)
-    check("1099-B: total income includes LTCG", Number(ret.totalIncome), 60000);
+    // Wages 60k + LTCG 20k → totalIncome 80k (per Form 1040 Line 9, LTCG is in AGI)
+    check("1099-B: total income includes LTCG (in AGI)", Number(ret.totalIncome), 80000);
     // After std deduction $14,600, taxable on ordinary = $45,400
     // Ordinary tax on $45,400: 1160 + (45400-11600)*0.12 = 1160 + 4056 = 5216
     // LTCG fills $45,400 → $65,400; 0% cap is $47,025 single 2024
@@ -239,11 +239,10 @@ async function run() {
     await new Promise((r) => setTimeout(r, 300));
 
     const ret = await api<any>(`/clients/${cid}/tax-return`);
-    // totalIncome = wages $80k + ordinary part of dividends ($5000 - $4000 qualified subtracted = $1000 added to ordinary)
-    // Actually: pipeline adds (ordinaryDividends - qualifiedDividends) to ordinary income.
-    // 5000 - 4000 = $1000 ordinary; qualified $4000 stacks separately for cap gains rate.
-    check("Total income = wages + ordinary dividends portion", Number(ret.totalIncome), 81000);
-    // Capital gains tax should include 15% × $4000 qualified dividends (since AGI > 0% threshold)
+    // Per Form 1040: total income = wages + full ordinary dividends (Line 3b includes qualified)
+    // Total income = $80k wages + $5k full ordinary dividends = $85k
+    check("Total income = wages + full ordinary dividends (Line 3b)", Number(ret.totalIncome), 85000);
+    // Cap gains tax: 15% × $4k qualified portion (since AGI > 0% threshold)
     checkNear("Cap gains tax = 15% × $4k qualified div", Number((ret as any).capitalGainsTax || 0), 600, 1);
   });
 

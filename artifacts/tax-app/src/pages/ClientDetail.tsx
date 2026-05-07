@@ -1328,7 +1328,7 @@ function Form1099Fields({ form, onChange }: { form: Form1099FormState; onChange:
   );
 }
 
-function Form1099Tab({ clientId }: { clientId: number }) {
+function Form1099Tab({ clientId, taxYear }: { clientId: number; taxYear: number }) {
   const { data: records, isLoading } = useListForm1099Data(clientId, {
     query: { queryKey: getListForm1099DataQueryKey(clientId) },
   });
@@ -1352,7 +1352,7 @@ function Form1099Tab({ clientId }: { clientId: number }) {
     const numField = (s: string) => (s ? Number(s) : undefined);
     const strField = (s: string) => (s ? s : undefined);
     return {
-      taxYear: new Date().getFullYear() - 1, // will be set by client.taxYear
+      taxYear,
       formType: f.formType as CreateForm1099DataBodyFormType,
       payerName: strField(f.payerName),
       payerTin: strField(f.payerTin),
@@ -1913,7 +1913,7 @@ export default function ClientDetail() {
           <W2DataTab clientId={clientId} />
         </TabsContent>
         <TabsContent value="form1099" className="mt-6">
-          <Form1099Tab clientId={clientId} />
+          <Form1099Tab clientId={clientId} taxYear={client.taxYear ?? 2024} />
         </TabsContent>
         <TabsContent value="calculator" className="mt-6">
           <TaxCalculatorTab clientId={clientId} taxYear={client.taxYear ?? 2024} />

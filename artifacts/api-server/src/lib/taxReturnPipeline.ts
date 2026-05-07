@@ -310,21 +310,20 @@ export async function computeTaxReturn(
   // Combine CPA-entered SE income + 1099-NEC income
   const totalSeIncome = seIncomeFromAdj + form1099Summary.seIncome;
   // Combine CPA-entered investment income + 1099 investment income (interest, dividends, cap gains)
-  // Note: 1099 ordinary investment income (interest + ordinary dividends) goes to ordinary tax;
-  //       qualified dividends + LTCG go to preferential rates separately.
+  // For NIIT this is everything; for ordinary tax we'll separate qualified div + LTCG out.
   const totalInvestmentIncomeForNiit = investmentIncomeFromAdj + form1099Summary.totalInvestmentIncome;
 
   // SE tax — applies before AGI is finalized (1/2 deductible above the line)
   const se = calculateSelfEmploymentTax(totalSeIncome, taxYear);
 
-  // Ordinary additional income that flows to ordinary tax brackets:
-  //   - User-supplied additionalIncome
-  //   - Adjustment "additional_income"
-  //   - SE income (also subject to SE tax)
-  //   - Adjustment "investment_income" (treated as ordinary unless flagged otherwise)
-  //   - 1099 ordinary income: interest, ordinary dividends, retirement, unemployment, 1099-K, 1099-MISC
-  // NOT included here: qualified dividends and LTCG (preferential rates),
-  //                    STCG (added separately so it can be taxed at ordinary rates correctly)
+  // ALL income flows into total income / AGI (this is what Form 1040 Line 9 looks like).
+  // Capital gains and qualified dividends ARE in AGI — they just get taxed at preferential
+  // rates downstream in calculateFederalTaxWithCapitalGains.
+  // STCG is taxed at ordinary rates so flows through ordinary brackets.
+  const longTermGains = form1099Summary.longTermCapitalGains;
+  const shortTermGains = form1099Summary.shortTermCapitalGains;
+  const qualifiedDividends = form1099Summary.qualifiedDividends;
+
   const ordinaryAdditionalIncome =
     additionalIncome +
     additionalIncomeAdjustments +
@@ -332,11 +331,17 @@ export async function computeTaxReturn(
     investmentIncomeFromAdj +
     form1099Summary.seIncome +
     form1099Summary.interestIncome +
-    form1099Summary.ordinaryDividends +
+    form1099Summary.ordinaryDividends + // non-qualified portion (1099-DIV box 1a − 1b)
     form1099Summary.retirementIncome +
     form1099Summary.unemploymentIncome +
     form1099Summary.paymentCardIncome +
-    form1099Summary.miscIncome;
+    form1099Summary.miscIncome +
+    // Capital gains and qualified dividends ARE part of AGI per Form 1040.
+    // Including them here ensures NIIT and state tax see the correct AGI.
+    // For federal ordinary-rate tax, we'll subtract them back out below.
+    Math.max(0, longTermGains) +
+    Math.max(0, qualifiedDividends) +
+    Math.max(0, shortTermGains);
 
   const aboveTheLineAdjustments = deductionAdjustments + otherDeductions + se.deductibleHalf;
   const itemizedDeductions = additionalDeductions;
@@ -360,28 +365,29 @@ export async function computeTaxReturn(
   const taxableAfterQbi = Math.max(0, calc.taxableIncome - qbi.finalDeduction);
 
   // Capital gains: LTCG + qualified dividends use preferential rates; STCG uses ordinary.
-  // Add LTCG + qualified dividends to taxable income for the preferential calculation.
-  const longTermGains = form1099Summary.longTermCapitalGains;
-  const shortTermGains = form1099Summary.shortTermCapitalGains;
-  const qualifiedDividends = form1099Summary.qualifiedDividends;
-  const preferentialIncome = longTermGains + qualifiedDividends;
+  // taxableAfterQbi NOW includes LTCG + QDIV + STCG (we put them in additionalIncome above
+  // so that AGI is correct for NIIT and state tax). For the federal-tax computation, we need
+  // to separate the ordinary-rate portion from the preferential portion.
+  const preferentialIncome = Math.max(0, longTermGains) + Math.max(0, qualifiedDividends);
+  // ordinary-rate taxable income = full taxable - LTCG - QDIV (STCG stays since it's ordinary-rate)
+  const ordinaryPortionOfTaxable = Math.max(0, taxableAfterQbi - preferentialIncome);
 
-  // Compute federal tax: ordinary tax on (taxableAfterQbi + STCG) + preferential tax on (LTCG + QD)
   const capGains = calculateFederalTaxWithCapitalGains({
-    ordinaryTaxableIncome: taxableAfterQbi,
-    longTermGains,
-    qualifiedDividends,
-    shortTermGains,
+    ordinaryTaxableIncome: ordinaryPortionOfTaxable,
+    longTermGains: Math.max(0, longTermGains),
+    qualifiedDividends: Math.max(0, qualifiedDividends),
+    shortTermGains: 0, // STCG already inside ordinaryPortionOfTaxable
     filingStatus: client.filingStatus,
     taxYear,
   });
   const regularFederalTax = capGains.totalFederalTax;
 
   // AMT — alternative computation; final regular tax = max(regular, regular + AMT delta).
-  // For AMT we use taxable income including capital gains (approximation — real AMT
-  // has separate cap-gains treatment that mirrors regular but on AMTI).
+  // taxableAfterQbi already includes capital gains and qualified dividends in our pipeline
+  // (since they're in AGI). Real AMT has separate cap-gains treatment that mirrors regular
+  // but on AMTI; we approximate by using full taxable income.
   const amt = calculateAmt({
-    taxableIncome: taxableAfterQbi + preferentialIncome + Math.max(0, shortTermGains),
+    taxableIncome: taxableAfterQbi,
     amtPreferences,
     filingStatus: client.filingStatus,
     regularTax: regularFederalTax,
