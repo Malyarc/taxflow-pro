@@ -239,8 +239,15 @@ check("MS 2025 $80k single (4.4%)", calculateStateTax(80000, "MS", "single", 202
 check("NC 2025 $80k single (4.25%)", calculateStateTax(80000, "NC", "single", 2025), (80000 - 12750) * 0.0425);
 // LA flat 3% with std $12,500
 check("LA 2025 $80k single (3% over std $12,500)", calculateStateTax(80000, "LA", "single", 2025), (80000 - 12500) * 0.03);
-// IA flat 3.8%
-check("IA 2025 $80k single (3.8%)", calculateStateTax(80000, "IA", "single", 2025), (80000 - 2630) * 0.038);
+// IA flat 3.8% — std deduction mirrors federal ($15,000 single 2025) post-2023 reform
+check("IA 2025 $80k single (3.8% over federal std $15k)", calculateStateTax(80000, "IA", "single", 2025), (80000 - 15000) * 0.038);
+// IA 2024 — progressive brackets, std deduction mirrors federal ($14,600 single 2024)
+// taxable = 80k - 14.6k = 65,400
+//   $0-$6,210 × 4.4% = 273.24
+//   $6,210-$31,050 × 4.82% = $24,840 × 4.82% = 1,197.288
+//   $31,050-$65,400 × 5.7% = $34,350 × 5.7% = 1,957.95
+//   total = $3,428.478
+check("IA 2024 $80k single (mirrors federal std ded)", calculateStateTax(80000, "IA", "single", 2024), 3428.478, 0.5);
 // UT dropped to 4.5%
 check("UT 2025 $80k single (4.5%)", calculateStateTax(80000, "UT", "single", 2025), 80000 * 0.045);
 // GA dropped to 5.19%

@@ -749,6 +749,29 @@ async function main() {
     } finally { await delClient(cid); }
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 23: Iowa filer — IA std deduction now mirrors federal (post-2023 reform)
+  // Single, $80k wages, IA. Bug fix: IA used a tiny $2,630 std ded; should use federal $14,600.
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("23. Iowa filer — std deduction mirrors federal (TY2024)", async (ctx) => {
+    const cid = await makeClient({ firstName: "IA", lastName: "Filer", filingStatus: "single", state: "IA", taxYear: 2024 });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 80000, federalTaxWithheldBox2: 9000, stateCode: "IA", stateTaxWithheldBox17: 3500, stateWagesBox16: 80000 }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // Federal: AGI $80k - std $14,600 = taxable $65,400.
+      //   Federal: 1160 + ($47,150 - $11,600) × 12% + ($65,400 - $47,150) × 22% = $9,441
+      // Iowa: Same federal-conforming std deduction. IA taxable = $80k - $14,600 = $65,400.
+      //   IA progressive 2024: $0-$6,210 × 4.4% = $273.24
+      //                        $6,210-$31,050 × 4.82% = $24,840 × 4.82% = $1,197.288
+      //                        $31,050-$65,400 × 5.7% = $34,350 × 5.7% = $1,957.95
+      //                        Total = $3,428.478
+      assert(ctx, "Federal tax $9,441", Number(r.federalTaxLiability), 9441, 1);
+      assert(ctx, "IA state tax $3,428.48 (uses federal $14.6k std ded, not old $2,630)", Number(r.stateTaxLiability), 3428.48, 0.5);
+    } finally { await delClient(cid); }
+  });
+
   // ═════════════════════════════════════════════════════════════════════════
   // SUMMARY
   // ═════════════════════════════════════════════════════════════════════════

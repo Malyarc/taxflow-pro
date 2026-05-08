@@ -78,8 +78,10 @@ const FED_STD_DEDUCTION_2025 = {
 };
 
 // States whose standard deduction is explicitly tied to the federal value (auto-updates each year).
+// Iowa was added 2026-05 — its 2023+ tax reform replaced the historical small IA std deduction
+// with conformity to the federal standard deduction (IA Code §422.9).
 const FED_CONFORMING_STD_DED_STATES = new Set([
-  "CO", "ID", "MN", "MO", "MT", "NM", "ND", "SC",
+  "CO", "ID", "IA", "MN", "MO", "MT", "NM", "ND", "SC",
 ]);
 
 // Helper for flat-rate states: build a single-bracket structure.
@@ -351,8 +353,10 @@ const STATE_TAX_DATA_2024: Record<string, StateTaxInfo> = {
       single: [{ upTo: 6210, rate: 0.044 }, { upTo: 31050, rate: 0.0482 }, { upTo: Infinity, rate: 0.057 }],
       married_filing_jointly: [{ upTo: 12420, rate: 0.044 }, { upTo: 62100, rate: 0.0482 }, { upTo: Infinity, rate: 0.057 }],
     },
-    standardDeduction: { single: 2630, married_filing_jointly: 6480, head_of_household: 6480 },
-    notes: "IA top rate is 5.7% for 2024; will become flat 3.9% by 2026.",
+    // IA TY2023+ reform conforms IA's standard deduction to the federal value (IA Code §422.9).
+    // build2025Data() auto-bumps to the 2025 federal std ded via FED_CONFORMING_STD_DED_STATES.
+    standardDeduction: { ...FED_STD_DEDUCTION_2024 },
+    notes: "IA top rate 5.7% for 2024 (becomes flat 3.8% in 2025). Std deduction mirrors federal (post-2023 reform).",
   },
   KS: {
     name: "Kansas", hasIncomeTax: true,
