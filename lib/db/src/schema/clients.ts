@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, numeric, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -15,6 +15,18 @@ export const clientsTable = pgTable("clients", {
   dependentsUnder17: integer("dependents_under_17").notNull().default(0),
   /** Other qualifying dependents (drives the $500 Credit for Other Dependents). */
   otherDependents: integer("other_dependents").notNull().default(0),
+  /** Children eligible for dependent care credit (age 12 and under at year end) */
+  dependentsForCareCredit: integer("dependents_for_care_credit").notNull().default(0),
+  /** Taxpayer age at year end (drives IRA/HSA catch-up contributions) */
+  taxpayerAge: integer("taxpayer_age"),
+  /** Spouse age at year end (for joint catch-ups) */
+  spouseAge: integer("spouse_age"),
+  /** Earned income of spouse (for dependent care credit limit) */
+  spouseEarnedIncome: numeric("spouse_earned_income", { precision: 12, scale: 2 }),
+  /** HSA family coverage flag (vs self-only) — drives contribution limit */
+  hsaIsFamilyCoverage: boolean("hsa_is_family_coverage").notNull().default(false),
+  /** Whether taxpayer is covered by a workplace retirement plan — drives IRA deduction phase-out */
+  iraCoveredByWorkplacePlan: boolean("ira_covered_by_workplace_plan").notNull().default(false),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

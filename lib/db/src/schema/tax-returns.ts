@@ -29,6 +29,23 @@ export const taxReturnsTable = pgTable(
     additionalChildTaxCredit: numeric("additional_child_tax_credit", { precision: 12, scale: 2 }),
     capitalGainsTax: numeric("capital_gains_tax", { precision: 12, scale: 2 }),
     preferentialIncome: numeric("preferential_income", { precision: 12, scale: 2 }),
+    // Schedule A line items
+    medicalDeductible: numeric("medical_deductible", { precision: 12, scale: 2 }),
+    saltDeductible: numeric("salt_deductible", { precision: 12, scale: 2 }),
+    mortgageDeductible: numeric("mortgage_deductible", { precision: 12, scale: 2 }),
+    charitableDeductible: numeric("charitable_deductible", { precision: 12, scale: 2 }),
+    // Above-the-line deductions
+    hsaDeduction: numeric("hsa_deduction", { precision: 12, scale: 2 }),
+    iraDeduction: numeric("ira_deduction", { precision: 12, scale: 2 }),
+    // Credits
+    eitc: numeric("eitc", { precision: 12, scale: 2 }),
+    aocCredit: numeric("aoc_credit", { precision: 12, scale: 2 }),
+    aocRefundablePortion: numeric("aoc_refundable_portion", { precision: 12, scale: 2 }),
+    llcCredit: numeric("llc_credit", { precision: 12, scale: 2 }),
+    saversCredit: numeric("savers_credit", { precision: 12, scale: 2 }),
+    dependentCareCredit: numeric("dependent_care_credit", { precision: 12, scale: 2 }),
+    // Schedule C
+    scheduleCExpenses: numeric("schedule_c_expenses", { precision: 12, scale: 2 }),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

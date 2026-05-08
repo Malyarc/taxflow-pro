@@ -849,7 +849,15 @@ function TaxCalculatorTab({ clientId, taxYear }: { clientId: number; taxYear: nu
                   ...((Number(taxReturn.niitTax) || 0) > 0 ? [["  └─ NIIT (3.8%)", taxReturn.niitTax]] as Array<[string, unknown]> : []),
                   ...((Number((taxReturn as any).capitalGainsTax) || 0) > 0 ? [["  └─ Capital Gains Tax (LTCG/QDIV)", (taxReturn as any).capitalGainsTax]] as Array<[string, unknown]> : []),
                   ...((Number(taxReturn.qbiDeduction) || 0) > 0 ? [["  └─ QBI Deduction", taxReturn.qbiDeduction]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).hsaDeduction) || 0) > 0 ? [["  └─ HSA Deduction", (taxReturn as any).hsaDeduction]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).iraDeduction) || 0) > 0 ? [["  └─ IRA Deduction", (taxReturn as any).iraDeduction]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).scheduleCExpenses) || 0) > 0 ? [["  └─ Schedule C Expenses", (taxReturn as any).scheduleCExpenses]] as Array<[string, unknown]> : []),
                   ...((Number(taxReturn.additionalChildTaxCredit) || 0) > 0 ? [["  └─ Refundable ACTC", taxReturn.additionalChildTaxCredit]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).eitc) || 0) > 0 ? [["  └─ EITC (refundable)", (taxReturn as any).eitc]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).aocCredit) || 0) > 0 ? [["  └─ Education AOC", (taxReturn as any).aocCredit]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).llcCredit) || 0) > 0 ? [["  └─ Education LLC", (taxReturn as any).llcCredit]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).saversCredit) || 0) > 0 ? [["  └─ Saver's Credit", (taxReturn as any).saversCredit]] as Array<[string, unknown]> : []),
+                  ...((Number((taxReturn as any).dependentCareCredit) || 0) > 0 ? [["  └─ Dependent Care Credit", (taxReturn as any).dependentCareCredit]] as Array<[string, unknown]> : []),
                   ["Federal Withheld", taxReturn.federalTaxWithheld],
                   ["Federal Refund/Owed", taxReturn.federalRefundOrOwed],
                   ["State Tax", taxReturn.stateTaxLiability],
@@ -1727,6 +1735,25 @@ function AdjustmentsTab({ clientId }: { clientId: number }) {
     investment_income: "Investment Income (NIIT)",
     qbi_income: "Qualified Business Income (QBI)",
     amt_preferences: "AMT Preferences",
+    // Schedule A line items (itemized deductions)
+    medical_expenses: "Medical/Dental Expenses (Sched A)",
+    state_income_tax: "State Income Tax (Sched A SALT)",
+    state_property_tax: "State Property Tax (Sched A SALT)",
+    state_sales_tax: "State Sales Tax (Sched A SALT alt)",
+    mortgage_interest: "Mortgage Interest (Sched A)",
+    charitable_cash: "Charitable Cash (Sched A)",
+    charitable_property: "Charitable Property (Sched A)",
+    // Above-the-line retirement / health
+    hsa_contribution: "HSA Contribution",
+    ira_contribution_traditional: "Traditional IRA Contribution",
+    ira_contribution_roth: "Roth IRA Contribution",
+    // Schedule C
+    schedule_c_expenses: "Schedule C Business Expenses",
+    // Credit-driving expenses
+    dependent_care_expenses: "Dependent Care Expenses",
+    qualified_education_expenses_aoc: "Education Expenses — AOC (per student)",
+    qualified_education_expenses_llc: "Education Expenses — LLC",
+    retirement_contributions_savers: "Retirement Contributions (Saver's Credit)",
     other: "Other",
   };
 

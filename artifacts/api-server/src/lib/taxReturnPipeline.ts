@@ -26,12 +26,25 @@ import {
   calculateAmt,
   calculateFederalTax,
   calculateFederalTaxWithCapitalGains,
+  calculateScheduleA,
+  calculateEitc,
+  calculateEducationCredits,
+  calculateRetirementDeductions,
+  calculateSaversCredit,
+  calculateDependentCareCredit,
+  getFederalStandardDeduction,
   type CtcCalculation,
   type SeTaxCalculation,
   type NiitCalculation,
   type QbiCalculation,
   type AmtCalculation,
   type CapitalGainsCalculation,
+  type ScheduleACalculation,
+  type EitcCalculation,
+  type EducationCreditsCalculation,
+  type RetirementDeductionsCalculation,
+  type SaversCreditCalculation,
+  type DependentCareCreditCalculation,
 } from "./taxCalculator";
 import { logger } from "./logger";
 
@@ -81,9 +94,6 @@ export interface Form1099Summary {
 }
 
 function summarize1099s(records: Array<typeof form1099DataTable.$inferSelect>): Form1099Summary {
-  const sum = (key: keyof typeof records[number]) =>
-    records.reduce((s, r) => s + toNum(r[key] as string | null), 0);
-
   const necRecords = records.filter((r) => r.formType === "nec");
   const miscRecords = records.filter((r) => r.formType === "misc");
   const intRecords = records.filter((r) => r.formType === "int");
@@ -206,6 +216,21 @@ export interface ComputedTaxReturn {
   preferentialIncome: number;
   /** Summary of all 1099 records included in this return */
   form1099Summary: Form1099Summary;
+  // ── Phase 1 line items ─────────────────────────────────────────────────
+  /** Schedule A computed total + per-line breakdown */
+  scheduleA: ScheduleACalculation;
+  /** Schedule C expenses (subtracted from gross SE income before SE tax) */
+  scheduleCExpenses: number;
+  /** Above-the-line HSA + IRA deductions (with phase-outs) */
+  retirementDeductions: RetirementDeductionsCalculation;
+  /** EITC (refundable) */
+  eitc: EitcCalculation;
+  /** Education credits (AOC + LLC, mixed refundable/non-refundable) */
+  educationCredits: EducationCreditsCalculation;
+  /** Saver's Credit (non-refundable) */
+  saversCredit: SaversCreditCalculation;
+  /** Dependent Care Credit (non-refundable) */
+  dependentCareCredit: DependentCareCreditCalculation;
   /** Detailed breakdowns for transparency */
   detail: {
     se: SeTaxCalculation;
@@ -244,8 +269,7 @@ export async function computeTaxReturn(
   const taxYear =
     overrides.taxYear ?? client.taxYear ?? existing?.taxYear ?? new Date().getFullYear() - 1;
   const additionalIncome = overrides.additionalIncome ?? 0;
-  const useItemizedDeductions =
-    overrides.useItemizedDeductions ?? Boolean(existing?.itemizedDeductions);
+  const useItemizedDeductionsOverride = overrides.useItemizedDeductions;
   const additionalDeductions =
     overrides.additionalDeductions ?? toNum(existing?.itemizedDeductions);
 
@@ -295,31 +319,56 @@ export async function computeTaxReturn(
       .filter((a) => a.adjustmentType === type)
       .reduce((s, a) => s + toNum(a.amount), 0);
 
+  // Original adjustment types
   const deductionAdjustments = sumByType("deduction");
   const creditAdjustments = sumByType("credit");
   const additionalIncomeAdjustments = sumByType("additional_income");
   const withholdingAdjustments = sumByType("withholding_adjustment");
   const otherDeductions = sumByType("other");
 
-  // ── Income from CPA adjustments + 1099s ──
+  // Income / SE / investment / QBI / AMT adjustment types (existing)
   const seIncomeFromAdj = sumByType("self_employment_income");
   const investmentIncomeFromAdj = sumByType("investment_income");
   const qbiIncome = sumByType("qbi_income");
   const amtPreferences = sumByType("amt_preferences");
 
-  // Combine CPA-entered SE income + 1099-NEC income
-  const totalSeIncome = seIncomeFromAdj + form1099Summary.seIncome;
-  // Combine CPA-entered investment income + 1099 investment income (interest, dividends, cap gains)
-  // For NIIT this is everything; for ordinary tax we'll separate qualified div + LTCG out.
-  const totalInvestmentIncomeForNiit = investmentIncomeFromAdj + form1099Summary.totalInvestmentIncome;
+  // ── Phase 1 adjustment types ─────────────────────────────────────────
+  // Schedule A inputs
+  const medicalExpensesAdj = sumByType("medical_expenses");
+  const stateIncomeTaxAdj = sumByType("state_income_tax");
+  const statePropertyTaxAdj = sumByType("state_property_tax");
+  const stateSalesTaxAdj = sumByType("state_sales_tax");
+  const mortgageInterestAdj = sumByType("mortgage_interest");
+  const charitableCashAdj = sumByType("charitable_cash");
+  const charitablePropertyAdj = sumByType("charitable_property");
+  // Above-the-line
+  const hsaContributionAdj = sumByType("hsa_contribution");
+  const iraTraditionalAdj = sumByType("ira_contribution_traditional");
+  const iraRothAdj = sumByType("ira_contribution_roth"); // not deductible, counts for saver's
+  // Schedule C
+  const scheduleCExpensesInput = sumByType("schedule_c_expenses");
+  // Credits
+  const dependentCareExpensesAdj = sumByType("dependent_care_expenses");
+  const aocExpensesAdj = sumByType("qualified_education_expenses_aoc");
+  const llcExpensesAdj = sumByType("qualified_education_expenses_llc");
+  const saversContributionsAdj = sumByType("retirement_contributions_savers");
 
-  // SE tax — applies before AGI is finalized (1/2 deductible above the line)
-  const se = calculateSelfEmploymentTax(totalSeIncome, taxYear);
+  // ── Step 1: Schedule C — net SE income before SE tax ─────────────────
+  // Real Schedule C subtracts expenses from gross 1099-NEC income.
+  // Cap expenses at gross (no NOL — that's Phase 2).
+  const grossSeIncome = seIncomeFromAdj + form1099Summary.seIncome;
+  const scheduleCExpenses = Math.min(
+    Math.max(0, scheduleCExpensesInput),
+    Math.max(0, grossSeIncome),
+  );
+  const netSeIncome = Math.max(0, grossSeIncome - scheduleCExpenses);
 
-  // ALL income flows into total income / AGI (this is what Form 1040 Line 9 looks like).
-  // Capital gains and qualified dividends ARE in AGI — they just get taxed at preferential
-  // rates downstream in calculateFederalTaxWithCapitalGains.
-  // STCG is taxed at ordinary rates so flows through ordinary brackets.
+  // SE tax — computed on net SE earnings; 1/2 deductible above the line
+  const se = calculateSelfEmploymentTax(netSeIncome, taxYear);
+
+  // ── Step 2: Total income (Form 1040 Line 9) ─────────────────────────
+  // ALL income flows in (LTCG + QDIV are part of AGI per Line 9; they get
+  // taxed at preferential rates downstream).
   const longTermGains = form1099Summary.longTermCapitalGains;
   const shortTermGains = form1099Summary.shortTermCapitalGains;
   const qualifiedDividends = form1099Summary.qualifiedDividends;
@@ -327,32 +376,106 @@ export async function computeTaxReturn(
   const ordinaryAdditionalIncome =
     additionalIncome +
     additionalIncomeAdjustments +
-    seIncomeFromAdj + // 1099-NEC seIncome counted via form1099Summary.seIncome below
     investmentIncomeFromAdj +
-    form1099Summary.seIncome +
+    netSeIncome + // net of Schedule C expenses (was gross before)
     form1099Summary.interestIncome +
-    form1099Summary.ordinaryDividends + // non-qualified portion (1099-DIV box 1a − 1b)
+    form1099Summary.ordinaryDividends + // non-qualified portion
     form1099Summary.retirementIncome +
     form1099Summary.unemploymentIncome +
     form1099Summary.paymentCardIncome +
     form1099Summary.miscIncome +
-    // Capital gains and qualified dividends ARE part of AGI per Form 1040.
-    // Including them here ensures NIIT and state tax see the correct AGI.
-    // For federal ordinary-rate tax, we'll subtract them back out below.
     Math.max(0, longTermGains) +
     Math.max(0, qualifiedDividends) +
     Math.max(0, shortTermGains);
 
-  const aboveTheLineAdjustments = deductionAdjustments + otherDeductions + se.deductibleHalf;
-  const itemizedDeductions = additionalDeductions;
+  const totalIncomeProvisional = totalWages + ordinaryAdditionalIncome;
 
+  // ── Step 3: Above-the-line deductions ───────────────────────────────
+  // SE half + HSA (no AGI phase-out) + legacy "deduction"/"other" + IRA (with phase-out).
+  // IRA phase-out uses MAGI ≈ AGI computed WITHOUT the IRA deduction itself
+  // (per IRS Pub 590-A). So compute AGI before IRA, then derive IRA, then final AGI.
+
+  const ageTaxpayer = client.taxpayerAge ?? 0;
+  const retirementForLimits = calculateRetirementDeductions({
+    hsaContribution: hsaContributionAdj,
+    hsaIsFamilyCoverage: client.hsaIsFamilyCoverage ?? false,
+    iraContribution: iraTraditionalAdj,
+    iraCoveredByWorkplacePlan: client.iraCoveredByWorkplacePlan ?? false,
+    age: ageTaxpayer,
+    // Provisional AGI — recomputed once we have the IRA deduction.
+    // We use AGI before IRA (i.e. above-the-line minus IRA) for the phase-out.
+    agi: Math.max(0, totalIncomeProvisional - (deductionAdjustments + otherDeductions + se.deductibleHalf + Math.min(hsaContributionAdj, /*upper-bound*/ 10000))),
+    filingStatus: client.filingStatus,
+    taxYear,
+  });
+  const hsaDeduction = retirementForLimits.hsaDeductible;
+
+  // AGI before IRA = total income - all above-the-line EXCEPT IRA deduction
+  const aboveTheLineExcludingIra =
+    deductionAdjustments + otherDeductions + se.deductibleHalf + hsaDeduction;
+  const agiBeforeIra = Math.max(0, totalIncomeProvisional - aboveTheLineExcludingIra);
+
+  // Recompute IRA deduction with the precise pre-IRA AGI
+  const retirement = calculateRetirementDeductions({
+    hsaContribution: hsaContributionAdj,
+    hsaIsFamilyCoverage: client.hsaIsFamilyCoverage ?? false,
+    iraContribution: iraTraditionalAdj,
+    iraCoveredByWorkplacePlan: client.iraCoveredByWorkplacePlan ?? false,
+    age: ageTaxpayer,
+    agi: agiBeforeIra,
+    filingStatus: client.filingStatus,
+    taxYear,
+  });
+  const iraDeduction = retirement.iraDeductible;
+
+  const aboveTheLineAdjustments =
+    deductionAdjustments + otherDeductions + se.deductibleHalf + hsaDeduction + iraDeduction;
+
+  // ── Step 4: Schedule A itemized vs Standard ────────────────────────
+  // Compute Schedule A using AGI (medical 7.5% threshold uses AGI)
+  // Use a provisional AGI = totalIncome - aboveTheLine for the medical threshold;
+  // the final AGI will match this once we compute it below.
+  const provisionalAgi = Math.max(0, totalIncomeProvisional - aboveTheLineAdjustments);
+
+  const scheduleA = calculateScheduleA({
+    agi: provisionalAgi,
+    filingStatus: client.filingStatus,
+    taxYear,
+    inputs: {
+      medicalExpenses: medicalExpensesAdj,
+      stateIncomeTax: stateIncomeTaxAdj,
+      statePropertyTax: statePropertyTaxAdj,
+      stateSalesTax: stateSalesTaxAdj,
+      mortgageInterest: mortgageInterestAdj,
+      charitableCash: charitableCashAdj,
+      charitableProperty: charitablePropertyAdj,
+    },
+  });
+
+  // Determine effective itemized total: max of Schedule A computed and legacy override.
+  // Legacy: tax_returns.itemized_deductions (manual single number) — preserved for backward compat.
+  const itemizedTotal = Math.max(scheduleA.totalItemized, additionalDeductions);
+
+  // Use itemized if:
+  //   - explicitly forced via override, OR
+  //   - itemized auto-wins (> standard deduction)
+  // Fall back to standard if neither.
+  const stdDed = getFederalStandardDeduction(client.filingStatus, taxYear);
+  const useItemizedDeductions =
+    useItemizedDeductionsOverride === true
+      ? true
+      : useItemizedDeductionsOverride === false && additionalDeductions === 0 && scheduleA.totalItemized === 0
+        ? false
+        : itemizedTotal > stdDed;
+
+  // ── Step 5: Run base tax calc (federal AGI + taxable + state) ──────
   const calc = runTaxCalculation({
     totalWages,
     additionalIncome: ordinaryAdditionalIncome,
     filingStatus: client.filingStatus,
     stateCode: stateCode ?? "CA",
     useItemizedDeductions,
-    itemizedDeductions,
+    itemizedDeductions: itemizedTotal,
     adjustments: aboveTheLineAdjustments,
     taxYear,
   });
@@ -364,12 +487,8 @@ export async function computeTaxReturn(
   });
   const taxableAfterQbi = Math.max(0, calc.taxableIncome - qbi.finalDeduction);
 
-  // Capital gains: LTCG + qualified dividends use preferential rates; STCG uses ordinary.
-  // taxableAfterQbi NOW includes LTCG + QDIV + STCG (we put them in additionalIncome above
-  // so that AGI is correct for NIIT and state tax). For the federal-tax computation, we need
-  // to separate the ordinary-rate portion from the preferential portion.
+  // ── Step 6: Federal tax (ordinary + preferential) ──────────────────
   const preferentialIncome = Math.max(0, longTermGains) + Math.max(0, qualifiedDividends);
-  // ordinary-rate taxable income = full taxable - LTCG - QDIV (STCG stays since it's ordinary-rate)
   const ordinaryPortionOfTaxable = Math.max(0, taxableAfterQbi - preferentialIncome);
 
   const capGains = calculateFederalTaxWithCapitalGains({
@@ -382,10 +501,7 @@ export async function computeTaxReturn(
   });
   const regularFederalTax = capGains.totalFederalTax;
 
-  // AMT — alternative computation; final regular tax = max(regular, regular + AMT delta).
-  // taxableAfterQbi already includes capital gains and qualified dividends in our pipeline
-  // (since they're in AGI). Real AMT has separate cap-gains treatment that mirrors regular
-  // but on AMTI; we approximate by using full taxable income.
+  // AMT delta
   const amt = calculateAmt({
     taxableIncome: taxableAfterQbi,
     amtPreferences,
@@ -394,37 +510,127 @@ export async function computeTaxReturn(
     taxYear,
   });
 
-  // NIIT — 3.8% on lesser of (investment income, AGI over threshold)
-  // Use 1099-derived investment income + manual adjustment investment income.
+  // NIIT — uses AGI (= MAGI for our simplified model)
+  const totalInvestmentIncomeForNiit = investmentIncomeFromAdj + form1099Summary.totalInvestmentIncome;
   const niit = calculateNiit({
     investmentIncome: totalInvestmentIncomeForNiit,
     modifiedAgi: calc.adjustedGrossIncome,
     filingStatus: client.filingStatus,
   });
 
-  // Total federal liability before credits = regular + AMT + NIIT + SE
+  // Total federal liability (gross — before credits applied)
   const totalFederalLiability =
     regularFederalTax + amt.amtTax + niit.niitTax + se.seTaxTotal;
 
-  // CTC: refundable split based on tax owed before CTC.
-  // Earned income for ACTC: wages + net SE earnings
-  const earnedIncome = totalWages + Math.max(0, totalSeIncome - se.deductibleHalf);
+  // ── Step 7: Non-refundable credits in IRS order ────────────────────
+  // CTC first (Form 1040 Line 19), then Schedule 3 credits (Line 20).
+  // Each is capped at the remaining "income tax" (regular + AMT, NOT SE/NIIT).
+  const incomeTaxOnly = regularFederalTax + amt.amtTax;
+  let availableForNonRefundable = incomeTaxOnly;
+
+  // CTC handles its own refundable split. The non-refundable portion reduces
+  // availableForNonRefundable; refundable ACTC is separate.
+  const earnedIncome = totalWages + Math.max(0, netSeIncome - se.deductibleHalf);
   const ctc = calculateChildTaxCredit({
     qualifyingChildren: client.dependentsUnder17 ?? 0,
     otherDependents: client.otherDependents ?? 0,
     agi: calc.adjustedGrossIncome,
     filingStatus: client.filingStatus,
     taxYear,
-    taxBeforeCredit: regularFederalTax + amt.amtTax,
+    taxBeforeCredit: availableForNonRefundable,
     earnedIncome,
   });
+  availableForNonRefundable = Math.max(0, availableForNonRefundable - ctc.nonRefundablePortion);
 
+  // Saver's Credit (Form 8880) — non-refundable
+  const totalRetirementContribsForSavers =
+    iraTraditionalAdj + iraRothAdj + saversContributionsAdj;
+  const saversCredit = calculateSaversCredit({
+    filingStatus: client.filingStatus,
+    agi: calc.adjustedGrossIncome,
+    retirementContributions: totalRetirementContribsForSavers,
+    taxYear,
+  });
+  const saversApplied = Math.min(saversCredit.appliedCredit, availableForNonRefundable);
+  availableForNonRefundable = Math.max(0, availableForNonRefundable - saversApplied);
+
+  // Education credits (Form 8863):
+  //   AOC — 60% non-refundable + 40% refundable (split inside the calc)
+  //   LLC — 100% non-refundable
+  // Build per-student AOC expenses array — we get a single aggregate from the
+  // adjustment, so divide by 1 (one student) by default. Real per-student detail
+  // is still TODO; for now the aggregate flows as one large expense and the
+  // function caps at $4k per student, so multiple students should be entered as
+  // multiple adjustments (one per student).
+  const aocExpensesPerStudent: number[] = [];
+  // Treat the aggregate as one student's expenses unless the user enters multiple
+  // adjustments — each adjustment row represents one student's expenses.
+  for (const a of applied) {
+    if (a.adjustmentType === "qualified_education_expenses_aoc") {
+      aocExpensesPerStudent.push(toNum(a.amount));
+    }
+  }
+  const educationCredits = calculateEducationCredits({
+    agi: calc.adjustedGrossIncome,
+    filingStatus: client.filingStatus,
+    aocExpenses: aocExpensesPerStudent,
+    llcExpenses: llcExpensesAdj,
+  });
+  const aocNonRefundableApplied = Math.min(educationCredits.aocNonRefundable, availableForNonRefundable);
+  availableForNonRefundable = Math.max(0, availableForNonRefundable - aocNonRefundableApplied);
+  const llcApplied = Math.min(educationCredits.llcApplied, availableForNonRefundable);
+  availableForNonRefundable = Math.max(0, availableForNonRefundable - llcApplied);
+
+  // Dependent Care Credit (Form 2441) — non-refundable
+  const dependentCareCredit = calculateDependentCareCredit({
+    expenses: dependentCareExpensesAdj,
+    qualifyingDependents: client.dependentsForCareCredit ?? 0,
+    earnedIncomeTaxpayer: earnedIncome,
+    earnedIncomeSpouse: toNum(client.spouseEarnedIncome ?? null),
+    agi: calc.adjustedGrossIncome,
+    filingStatus: client.filingStatus,
+  });
+  const depCareApplied = Math.min(dependentCareCredit.appliedCredit, availableForNonRefundable);
+  availableForNonRefundable = Math.max(0, availableForNonRefundable - depCareApplied);
+
+  // ── Step 8: Refundable credits ──────────────────────────────────────
+  // EITC — refundable, uses earned income + AGI
+  const eitcInvestmentIncome = totalInvestmentIncomeForNiit;
+  const eitc = calculateEitc({
+    filingStatus: client.filingStatus,
+    qualifyingChildren: client.dependentsUnder17 ?? 0,
+    earnedIncome,
+    agi: calc.adjustedGrossIncome,
+    investmentIncome: eitcInvestmentIncome,
+    taxYear,
+  });
+
+  // Total credits applied (for refund/owe formula)
+  const totalNonRefundableApplied =
+    ctc.nonRefundablePortion +
+    saversApplied +
+    aocNonRefundableApplied +
+    llcApplied +
+    depCareApplied;
+  const totalRefundableCreditsApplied =
+    ctc.refundableActc +
+    educationCredits.aocRefundable +
+    eitc.appliedCredit;
+  const totalCreditsAppliedForRefund =
+    totalNonRefundableApplied + totalRefundableCreditsApplied;
+
+  // Final refund/owe formula:
+  //   refund = withheld + manual_credit_adj + (computed credits) - liability
+  //   liability already includes SE + NIIT + AMT + regular fed tax.
+  //   Non-refundable credits cap themselves at incomeTaxOnly (above), so
+  //   they can't over-refund.
   const federalRefundOrOwed =
     totalFederalWithheld +
-    withholdingAdjustments -
-    totalFederalLiability +
+    withholdingAdjustments +
     creditAdjustments +
-    ctc.appliedCredit; // appliedCredit already includes refundable portion
+    totalCreditsAppliedForRefund -
+    totalFederalLiability;
+
   const stateRefundOrOwed = totalStateWithheld - calc.stateTaxLiability;
 
   // Effective tax rate uses the full federal + state liability (before credits)
@@ -438,7 +644,7 @@ export async function computeTaxReturn(
     totalIncome: calc.totalIncome,
     adjustedGrossIncome: calc.adjustedGrossIncome,
     standardDeduction: calc.standardDeduction,
-    itemizedDeductions: useItemizedDeductions ? itemizedDeductions : null,
+    itemizedDeductions: useItemizedDeductions ? itemizedTotal : null,
     qbiDeduction: qbi.finalDeduction,
     taxableIncome: taxableAfterQbi,
     federalTaxLiability: totalFederalLiability,
@@ -457,6 +663,13 @@ export async function computeTaxReturn(
     capitalGainsTax: capGains.preferentialRateTax,
     preferentialIncome,
     form1099Summary,
+    scheduleA,
+    scheduleCExpenses,
+    retirementDeductions: retirement,
+    eitc,
+    educationCredits,
+    saversCredit,
+    dependentCareCredit,
     detail: { se, niit, qbi, amt, capitalGains: capGains },
     w2Count: w2Records.length,
     form1099Count: form1099Records.length,
@@ -488,6 +701,12 @@ export async function recalculateAndUpsertTaxReturn(
       ),
     );
 
+  // Education credits split: aocCredit = total AOC applied (refundable + non-refundable AOC);
+  // aocRefundablePortion separated for display.
+  const aocCreditTotal = result.educationCredits.aocApplied;
+  const aocRefundable = result.educationCredits.aocRefundable;
+  const llcCreditTotal = result.educationCredits.llcApplied;
+
   const payload = {
     clientId,
     taxYear: result.taxYear,
@@ -511,6 +730,23 @@ export async function recalculateAndUpsertTaxReturn(
     additionalChildTaxCredit: result.additionalChildTaxCredit != null ? String(result.additionalChildTaxCredit) : null,
     capitalGainsTax: result.capitalGainsTax != null ? String(result.capitalGainsTax) : null,
     preferentialIncome: result.preferentialIncome != null ? String(result.preferentialIncome) : null,
+    // Phase 1: Schedule A breakdown
+    medicalDeductible: String(result.scheduleA.medicalDeductible),
+    saltDeductible: String(result.scheduleA.saltDeductible),
+    mortgageDeductible: String(result.scheduleA.mortgageDeductible),
+    charitableDeductible: String(result.scheduleA.charitableDeductible),
+    // Phase 1: Above-the-line
+    hsaDeduction: String(result.retirementDeductions.hsaDeductible),
+    iraDeduction: String(result.retirementDeductions.iraDeductible),
+    // Phase 1: Credits
+    eitc: String(result.eitc.appliedCredit),
+    aocCredit: String(aocCreditTotal),
+    aocRefundablePortion: String(aocRefundable),
+    llcCredit: String(llcCreditTotal),
+    saversCredit: String(result.saversCredit.appliedCredit),
+    dependentCareCredit: String(result.dependentCareCredit.appliedCredit),
+    // Phase 1: Schedule C
+    scheduleCExpenses: String(result.scheduleCExpenses),
   };
 
   if (existing) {

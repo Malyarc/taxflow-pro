@@ -44,7 +44,23 @@ function assertExact<T>(ctx: AssertContext, label: string, actual: T, expected: 
   else { ctx.fails++; ctx.failures.push(`  ✗ ${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); }
 }
 
-interface Client { firstName: string; lastName: string; email: string; filingStatus: string; state: string; taxYear: number; dependentsUnder17?: number; otherDependents?: number; }
+interface Client {
+  firstName: string;
+  lastName: string;
+  email: string;
+  filingStatus: string;
+  state: string;
+  taxYear: number;
+  dependentsUnder17?: number;
+  otherDependents?: number;
+  // Phase 1 client fields
+  dependentsForCareCredit?: number;
+  taxpayerAge?: number | null;
+  spouseAge?: number | null;
+  spouseEarnedIncome?: number | null;
+  hsaIsFamilyCoverage?: boolean;
+  iraCoveredByWorkplacePlan?: boolean;
+}
 
 async function runScenario(name: string, fn: (ctx: AssertContext) => Promise<void>) {
   console.log(`\n── ${name} ──`);
@@ -62,7 +78,7 @@ async function runScenario(name: string, fn: (ctx: AssertContext) => Promise<voi
 
 let counter = 0;
 async function makeClient(c: Partial<Client>): Promise<number> {
-  const data = {
+  const data: Record<string, unknown> = {
     firstName: c.firstName ?? "Test", lastName: c.lastName ?? `S${++counter}`,
     email: `s${Date.now()}-${counter}@test.com`,
     filingStatus: c.filingStatus ?? "single",
@@ -71,6 +87,13 @@ async function makeClient(c: Partial<Client>): Promise<number> {
     dependentsUnder17: c.dependentsUnder17 ?? 0,
     otherDependents: c.otherDependents ?? 0,
   };
+  // Phase 1 fields — only include if explicitly set so existing scenarios keep their defaults.
+  if (c.dependentsForCareCredit !== undefined) data.dependentsForCareCredit = c.dependentsForCareCredit;
+  if (c.taxpayerAge !== undefined) data.taxpayerAge = c.taxpayerAge;
+  if (c.spouseAge !== undefined) data.spouseAge = c.spouseAge;
+  if (c.spouseEarnedIncome !== undefined) data.spouseEarnedIncome = c.spouseEarnedIncome;
+  if (c.hsaIsFamilyCoverage !== undefined) data.hsaIsFamilyCoverage = c.hsaIsFamilyCoverage;
+  if (c.iraCoveredByWorkplacePlan !== undefined) data.iraCoveredByWorkplacePlan = c.iraCoveredByWorkplacePlan;
   const res = await api<{ id: number }>("/clients", { method: "POST", body: JSON.stringify(data) });
   return res.id;
 }
@@ -307,10 +330,13 @@ async function main() {
       // ACTC: unused = $4,000 - $80 = $3,920. Cap = 2 × $1,700 = $3,400. Earned income test: 15% × ($30k - $2,500) = $4,125
       //   Refundable = min($3,920, $3,400, $4,125) = $3,400
       // Total CTC applied = $80 + $3,400 = $3,480
-      // Federal refund/owed = withheld $1,500 - tax $80 + CTC $3,480 = $4,900
+      // EITC (Phase 1): MFJ 2 kids. Earned $30k > maxAtIncome $17,400 → preliminary $6,960.
+      //   Phase-out start MFJ 2 kids = $29,640. Excess = $360. Reduction = $360 × 0.2106 = $75.82.
+      //   Applied EITC = $6,960 - $75.82 = $6,884.18
+      // Federal refund/owed = withheld $1,500 - tax $80 + CTC $3,480 + EITC $6,884.18 = $11,784.18
       assert(ctx, "Federal tax $80 (only 10% bracket)", Number(r.federalTaxLiability), 80, 1);
       assert(ctx, "ACTC refundable $3,400 (capped at $1,700/child)", Number(r.additionalChildTaxCredit), 3400, 1);
-      assert(ctx, "Federal refund $4,900", Number(r.federalRefundOrOwed), 4900, 5);
+      assert(ctx, "Federal refund $11,784.18 (incl. $6,884 EITC)", Number(r.federalRefundOrOwed), 11784.18, 5);
     } finally { await delClient(cid); }
   });
 
@@ -479,6 +505,247 @@ async function main() {
       assert(ctx, "TY2024 federal tax", Number(t24?.federalTaxLiability), 9441, 1);
       // 2025: $85k - $15,000 std = $70,000 taxable. 1192.5 + 4386 + (70000-48475)×.22 = $1192.5 + 4386 + 4735.5 = $10,314
       assert(ctx, "TY2025 federal tax", Number(t25?.federalTaxLiability), 10314, 1);
+    } finally { await delClient(cid); }
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // PHASE 1 SCENARIOS — exercising Schedule A, Schedule C, EITC, education
+  // credits, retirement deductions, saver's credit, dependent care credit
+  // ═════════════════════════════════════════════════════════════════════════
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 16: Big itemizer — mortgage + SALT cap + charity
+  // Single, $200k W-2, $40k withheld; $15k mortgage + $8k state + $4k property + $5k charity
+  // SALT capped at $10k. Total itemized = $30k > std $14,600. Itemize wins.
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("16. Big itemizer (Single $200k + mortgage + SALT + charity)", async (ctx) => {
+    const cid = await makeClient({ firstName: "Sched", lastName: "AItemizer", filingStatus: "single", state: "FL", taxYear: 2024 });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 200000, federalTaxWithheldBox2: 40000, stateCode: "FL" }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "mortgage_interest", amount: 15000, description: "Mortgage", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "state_income_tax", amount: 8000, description: "State income", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "state_property_tax", amount: 4000, description: "Property", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "charitable_cash", amount: 5000, description: "Charity", isApplied: true }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // SALT uncapped = $8k + $4k = $12k → capped at $10k
+      // Total Sched A = $15k mortgage + $10k SALT + $5k charity = $30k
+      // Taxable = $200k - $30k = $170k
+      // Single 2024 federal:
+      //   $11,600 × 10% = $1,160
+      //   ($47,150 - $11,600) × 12% = $35,550 × 12% = $4,266
+      //   ($100,525 - $47,150) × 22% = $53,375 × 22% = $11,742.50
+      //   ($170,000 - $100,525) × 24% = $69,475 × 24% = $16,674
+      //   Total = $33,842.50
+      assert(ctx, "Total income $200k", Number(r.totalIncome), 200000);
+      assert(ctx, "SALT capped at $10k (was $12k)", Number(r.saltDeductible), 10000);
+      assert(ctx, "Mortgage $15k flows", Number(r.mortgageDeductible), 15000);
+      assert(ctx, "Charity $5k", Number(r.charitableDeductible), 5000);
+      assert(ctx, "Itemized $30k beats std $14,600", Number(r.itemizedDeductions), 30000);
+      assert(ctx, "Taxable $170k", Number(r.taxableIncome), 170000);
+      assert(ctx, "Federal tax $33,842.50", Number(r.federalTaxLiability), 33842.50, 5);
+      assert(ctx, "Refund $6,157.50 ($40k - $33,842.50)", Number(r.federalRefundOrOwed), 6157.50, 5);
+    } finally { await delClient(cid); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 17: EITC family — MFJ, $25k W-2, 3 kids, $0 withheld
+  // Massive refund from refundable EITC + ACTC.
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("17. EITC family — MFJ $25k W-2, 3 kids → $7,830 EITC + ACTC", async (ctx) => {
+    const cid = await makeClient({ firstName: "EITC", lastName: "Family", filingStatus: "married_filing_jointly", state: "FL", taxYear: 2024, dependentsUnder17: 3 });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 25000, federalTaxWithheldBox2: 0, stateCode: "FL" }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // AGI $25k. Std MFJ $29,200. Taxable = max(0, $25k - $29,200) = $0. Fed = $0.
+      // CTC: 3 × $2k = $6k. AGI $25k < $400k MFJ threshold, no phase-out.
+      //   Non-refundable = min($6k, tax $0) = $0
+      //   Unused = $6k. ACTC cap = 3 × $1,700 = $5,100.
+      //   Earned-income test: 15% × ($25k - $2,500) = $3,375.
+      //   Refundable ACTC = min($6k, $5,100, $3,375) = $3,375
+      // EITC: MFJ 3 kids 2024. $25k > maxAtIncome $17,400 → preliminary $7,830 (max).
+      //   Phase-out start $29,640. AGI $25k < $29,640 → no phase-out. Applied $7,830.
+      // Refund = $0 withheld - $0 tax + ACTC $3,375 + EITC $7,830 = $11,205
+      assert(ctx, "Federal tax $0 (taxable income = $0)", Number(r.federalTaxLiability), 0, 0.01);
+      assert(ctx, "ACTC refundable $3,375 (15% × $22,500)", Number(r.additionalChildTaxCredit), 3375, 1);
+      assert(ctx, "EITC applied $7,830 (MFJ 3 kids max)", Number(r.eitc), 7830, 1);
+      assert(ctx, "Total refund $11,205 (ACTC + EITC, no tax withheld)", Number(r.federalRefundOrOwed), 11205, 5);
+    } finally { await delClient(cid); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 18: College parent — Single $60k + AOC ($4k tuition, 1 student)
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("18. College parent — Single $60k + AOC $4k → $2,500 credit", async (ctx) => {
+    const cid = await makeClient({ firstName: "College", lastName: "Parent", filingStatus: "single", state: "FL", taxYear: 2024 });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 60000, federalTaxWithheldBox2: 5000, stateCode: "FL" }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "qualified_education_expenses_aoc", amount: 4000, description: "Tuition", isApplied: true }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // AGI $60k. Std $14,600. Taxable $45,400.
+      // Federal: 1160 + ($45,400 - $11,600) × 12% = 1160 + 4056 = $5,216
+      // AOC: 100% × $2k + 25% × $2k = $2,500. AGI $60k < $80k phase-out start → no phase-out.
+      //   Refundable (40%) = $1,000; Non-refundable (60%) = $1,500
+      // Available for non-refundable = $5,216. After AOC NR $1,500: remaining = $3,716.
+      // Total credits applied = $1,500 NR + $1,000 R = $2,500
+      // Refund = $5k withheld - $5,216 tax + $2,500 credits = $2,284
+      assert(ctx, "Federal tax $5,216", Number(r.federalTaxLiability), 5216, 5);
+      assert(ctx, "AOC $2,500 total", Number(r.aocCredit), 2500, 1);
+      assert(ctx, "AOC refundable $1,000 (40%)", Number(r.aocRefundablePortion), 1000, 1);
+      assert(ctx, "Refund $2,284", Number(r.federalRefundOrOwed), 2284, 5);
+    } finally { await delClient(cid); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 19: Retirement saver — Single $20k W-2, $2k Trad IRA contribution
+  // 50% saver's credit tier. IRA fully deductible (no workplace plan).
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("19. Retirement saver — Single $20k + $2k Trad IRA → 50% saver's", async (ctx) => {
+    const cid = await makeClient({
+      firstName: "Saver", lastName: "Joe", filingStatus: "single", state: "FL", taxYear: 2024,
+      taxpayerAge: 30, iraCoveredByWorkplacePlan: false,
+    });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 20000, federalTaxWithheldBox2: 1000, stateCode: "FL" }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "ira_contribution_traditional", amount: 2000, description: "IRA", isApplied: true }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // Total income $20k. IRA deduction $2k (full, no plan) → AGI $18k.
+      // Std single $14,600. Taxable $3,400.
+      // Federal = $3,400 × 10% = $340.
+      // Saver's: AGI $18k single → tier 1 (50% rate, AGI <= $23k 2024).
+      //   Eligible contribution = min($2k, $2k cap) = $2k. Computed credit = $2k × 50% = $1,000.
+      //   Applied = min($1,000 computed, $340 remaining tax) = $340
+      // Total credits applied = $340 NR (saver's capped by tax)
+      // Refund = $1k withheld - $340 tax + $340 credit = $1,000
+      assert(ctx, "IRA deduction $2,000 (full, no plan)", Number(r.iraDeduction), 2000, 1);
+      assert(ctx, "AGI $18,000 after IRA", Number(r.adjustedGrossIncome), 18000, 1);
+      assert(ctx, "Federal tax $340 (10% bracket)", Number(r.federalTaxLiability), 340, 1);
+      assert(ctx, "Saver's credit eligibility $1,000 (50% × $2k)", Number(r.saversCredit), 1000, 1);
+      assert(ctx, "Refund $1,000 (saver's capped by tax owed)", Number(r.federalRefundOrOwed), 1000, 5);
+    } finally { await delClient(cid); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 20: Working parent — Single $40k + 1 kid in daycare $4k expenses
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("20. Working parent — Single $40k + $4k daycare, 1 kid", async (ctx) => {
+    const cid = await makeClient({
+      firstName: "Working", lastName: "Parent", filingStatus: "single", state: "FL", taxYear: 2024,
+      dependentsForCareCredit: 1,
+    });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 40000, federalTaxWithheldBox2: 4000, stateCode: "FL" }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "dependent_care_expenses", amount: 4000, description: "Daycare", isApplied: true }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // AGI $40k. Std $14,600. Taxable $25,400.
+      // Federal = 1160 + ($25,400 - $11,600) × 12% = 1160 + 1656 = $2,816
+      // Dep care: 1 kid, $4k expenses, AGI $40k.
+      //   Eligible = min($4k, $3k 1-kid cap, $40k earned) = $3k.
+      //   Rate at AGI $40k: floor(($40k - $15k) / $2k) = 12. Rate = 35% - 12% = 23%.
+      //   Credit = $3k × 23% = $690.
+      // Applied = min($690, $2,816) = $690.
+      // Refund = $4k - $2,816 + $690 = $1,874
+      assert(ctx, "Federal tax $2,816", Number(r.federalTaxLiability), 2816, 5);
+      assert(ctx, "Dep care credit $690 (23% × $3k cap)", Number(r.dependentCareCredit), 690, 1);
+      assert(ctx, "Refund $1,874", Number(r.federalRefundOrOwed), 1874, 5);
+    } finally { await delClient(cid); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 21: Self-employed with Schedule C expenses
+  // Single, $100k 1099-NEC gross - $30k expenses = $70k net SE income
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("21. Self-employed — $100k 1099-NEC - $30k expenses", async (ctx) => {
+    const cid = await makeClient({ firstName: "Self", lastName: "Employed", filingStatus: "single", state: "FL", taxYear: 2024 });
+    try {
+      await api(`/clients/${cid}/form1099data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, formType: "nec", payerName: "BigClient Co", nonemployeeCompensation: 100000 }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "schedule_c_expenses", amount: 30000, description: "Business expenses", isApplied: true }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // Gross SE = $100k. Sched C expenses = $30k. Net SE = $70k.
+      // Net SE earnings = $70k × 0.9235 = $64,645
+      //   SS portion = $64,645 × 12.4% = $8,015.98
+      //   Medicare portion = $64,645 × 2.9% = $1,874.71
+      //   SE tax total = $9,890.69. Half SE = $4,945.34.
+      // Total income = net SE $70k.
+      // AGI = $70k - $4,945.34 = $65,054.66.
+      // Std $14,600. Taxable = $50,454.66.
+      // Federal ordinary: 1160 + ($47,150 - $11,600) × 12% + ($50,454.66 - $47,150) × 22%
+      //   = 1160 + 4266 + 727.02 = $6,153.02
+      // Total fed liability = $6,153.02 + SE $9,890.69 = $16,043.71
+      // No CTC, EITC, etc. No withholding (SE pays via estimated tax).
+      // Refund = $0 - $16,043.71 = -$16,043.71 (owes)
+      assert(ctx, "Schedule C expenses $30k", Number(r.scheduleCExpenses), 30000);
+      assert(ctx, "Total income = net SE $70k", Number(r.totalIncome), 70000, 1);
+      assert(ctx, "SE tax $9,890.69 (on net SE)", Number(r.selfEmploymentTax), 9890.69, 1);
+      assert(ctx, "Federal liability $16,043.71 (incl. SE)", Number(r.federalTaxLiability), 16043.71, 5);
+      assert(ctx, "Owes $16,043.71 (no withholding)", Number(r.federalRefundOrOwed), -16043.71, 5);
+    } finally { await delClient(cid); }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SCENARIO 22: Combined — itemizer + IRA deduction + saver's + dep care
+  // MFJ, taxpayer $60k W-2 + spouse $20k W-2 = $80k household. 1 kid.
+  // ─────────────────────────────────────────────────────────────────────────
+  await runScenario("22. Combined (MFJ itemizer + IRA + saver's + dep care + CTC)", async (ctx) => {
+    const cid = await makeClient({
+      firstName: "Combined", lastName: "Household", filingStatus: "married_filing_jointly", state: "FL", taxYear: 2024,
+      dependentsUnder17: 1, dependentsForCareCredit: 1,
+      taxpayerAge: 30, iraCoveredByWorkplacePlan: false,
+      spouseEarnedIncome: 20000,
+    });
+    try {
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 60000, federalTaxWithheldBox2: 6000, stateCode: "FL" }) });
+      await api(`/clients/${cid}/w2data`, { method: "POST", body: JSON.stringify({ taxYear: 2024, wagesBox1: 20000, federalTaxWithheldBox2: 2000, stateCode: "FL" }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "ira_contribution_traditional", amount: 5000, description: "IRA", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "mortgage_interest", amount: 25000, description: "Mortgage", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "state_income_tax", amount: 5000, description: "State income", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "state_property_tax", amount: 4000, description: "Property", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "charitable_cash", amount: 3000, description: "Charity", isApplied: true }) });
+      await api(`/clients/${cid}/adjustments`, { method: "POST", body: JSON.stringify({ adjustmentType: "dependent_care_expenses", amount: 4000, description: "Daycare", isApplied: true }) });
+      await settle();
+      const r = await getReturn(cid);
+      // Hand-calc:
+      // Total wages = $80k. Total income = $80k.
+      // IRA $5k full deduction (no plan). AGI = $75k.
+      // Schedule A: SALT = min($5k+$4k, $10k cap) = $9k. Mortgage $25k. Charity $3k. Total = $37k.
+      // Std MFJ $29,200. Itemized $37k > std → use itemized.
+      // Taxable = $75k - $37k = $38k.
+      // Federal MFJ on $38k = $2,320 + ($38k - $23,200) × 12% = $2,320 + $1,776 = $4,096.
+      // CTC: 1 × $2k = $2k. AGI $75k < $400k MFJ → no phase-out.
+      //   Non-refundable = min($2k, $4,096) = $2k. Remaining tax = $2,096.
+      // Saver's: AGI $75k MFJ → 10% rate (between $50k and $76,500).
+      //   Cap MFJ = $4k. Eligible = min($5k, $4k) = $4k. Credit = $4k × 10% = $400.
+      //   Applied = min($400, $2,096) = $400. Remaining = $1,696.
+      // Dep care: 1 kid, $4k expenses, AGI $75k.
+      //   Earned taxpayer = $80k (combined wages). Earned spouse = $20k. Limit = min = $20k.
+      //   Eligible = min($4k, $3k 1-kid, $20k earned) = $3k.
+      //   Rate at AGI $75k > $43k → 20%. Credit = $3k × 20% = $600.
+      //   Applied = min($600, $1,696) = $600.
+      // Total non-refundable applied = $2,000 + $400 + $600 = $3,000
+      // EITC: MFJ 1 kid @ AGI $75k. Phase-out complete = $56,004. AGI > $56,004 → $0.
+      // Total fed liability = $4,096 (no SE/AMT/NIIT)
+      // Total withheld = $6k + $2k = $8k
+      // Refund = $8k withheld - $4,096 tax + $3,000 credits = $6,904
+      assert(ctx, "IRA deduction $5,000", Number(r.iraDeduction), 5000, 1);
+      assert(ctx, "AGI $75k", Number(r.adjustedGrossIncome), 75000, 1);
+      assert(ctx, "SALT capped $9k (under $10k limit)", Number(r.saltDeductible), 9000, 1);
+      assert(ctx, "Itemized $37k beats std $29,200", Number(r.itemizedDeductions), 37000, 1);
+      assert(ctx, "Taxable $38k", Number(r.taxableIncome), 38000, 1);
+      assert(ctx, "Federal tax $4,096", Number(r.federalTaxLiability), 4096, 5);
+      assert(ctx, "Saver's $400 (10% × $4k cap)", Number(r.saversCredit), 400, 1);
+      assert(ctx, "Dep care $600 (20% × $3k cap)", Number(r.dependentCareCredit), 600, 1);
+      assert(ctx, "Refund $6,904 (CTC $2k + saver's $400 + dep care $600)", Number(r.federalRefundOrOwed), 6904, 5);
     } finally { await delClient(cid); }
   });
 

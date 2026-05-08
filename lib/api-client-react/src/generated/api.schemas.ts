@@ -34,6 +34,16 @@ export interface Client {
   dependentsUnder17: number;
   /** Other qualifying dependents (drives the $500 Credit for Other Dependents). */
   otherDependents: number;
+  /** Children age 12 and under (drives Dependent Care Credit eligibility). */
+  dependentsForCareCredit?: number;
+  /** @nullable */
+  taxpayerAge?: number | null;
+  /** @nullable */
+  spouseAge?: number | null;
+  /** @nullable */
+  spouseEarnedIncome?: number | null;
+  hsaIsFamilyCoverage?: boolean;
+  iraCoveredByWorkplacePlan?: boolean;
   /** @nullable */
   notes?: string | null;
   createdAt: string;
@@ -62,6 +72,15 @@ export interface CreateClientBody {
   taxYear: number;
   dependentsUnder17?: number;
   otherDependents?: number;
+  dependentsForCareCredit?: number;
+  /** @nullable */
+  taxpayerAge?: number | null;
+  /** @nullable */
+  spouseAge?: number | null;
+  /** @nullable */
+  spouseEarnedIncome?: number | null;
+  hsaIsFamilyCoverage?: boolean;
+  iraCoveredByWorkplacePlan?: boolean;
   /** @nullable */
   notes?: string | null;
 }
@@ -88,6 +107,15 @@ export interface UpdateClientBody {
   taxYear?: number;
   dependentsUnder17?: number;
   otherDependents?: number;
+  dependentsForCareCredit?: number;
+  /** @nullable */
+  taxpayerAge?: number | null;
+  /** @nullable */
+  spouseAge?: number | null;
+  /** @nullable */
+  spouseEarnedIncome?: number | null;
+  hsaIsFamilyCoverage?: boolean;
+  iraCoveredByWorkplacePlan?: boolean;
   /** @nullable */
   notes?: string | null;
 }
@@ -505,6 +533,32 @@ export interface TaxReturn {
   /** @nullable */
   preferentialIncome?: number | null;
   /** @nullable */
+  medicalDeductible?: number | null;
+  /** @nullable */
+  saltDeductible?: number | null;
+  /** @nullable */
+  mortgageDeductible?: number | null;
+  /** @nullable */
+  charitableDeductible?: number | null;
+  /** @nullable */
+  hsaDeduction?: number | null;
+  /** @nullable */
+  iraDeduction?: number | null;
+  /** @nullable */
+  eitc?: number | null;
+  /** @nullable */
+  aocCredit?: number | null;
+  /** @nullable */
+  aocRefundablePortion?: number | null;
+  /** @nullable */
+  llcCredit?: number | null;
+  /** @nullable */
+  saversCredit?: number | null;
+  /** @nullable */
+  dependentCareCredit?: number | null;
+  /** @nullable */
+  scheduleCExpenses?: number | null;
+  /** @nullable */
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -559,6 +613,21 @@ export const AdjustmentAdjustmentType = {
   investment_income: "investment_income",
   qbi_income: "qbi_income",
   amt_preferences: "amt_preferences",
+  medical_expenses: "medical_expenses",
+  state_income_tax: "state_income_tax",
+  state_property_tax: "state_property_tax",
+  state_sales_tax: "state_sales_tax",
+  mortgage_interest: "mortgage_interest",
+  charitable_cash: "charitable_cash",
+  charitable_property: "charitable_property",
+  hsa_contribution: "hsa_contribution",
+  ira_contribution_traditional: "ira_contribution_traditional",
+  ira_contribution_roth: "ira_contribution_roth",
+  schedule_c_expenses: "schedule_c_expenses",
+  dependent_care_expenses: "dependent_care_expenses",
+  qualified_education_expenses_aoc: "qualified_education_expenses_aoc",
+  qualified_education_expenses_llc: "qualified_education_expenses_llc",
+  retirement_contributions_savers: "retirement_contributions_savers",
 } as const;
 
 export interface Adjustment {
@@ -587,6 +656,21 @@ export const CreateAdjustmentBodyAdjustmentType = {
   investment_income: "investment_income",
   qbi_income: "qbi_income",
   amt_preferences: "amt_preferences",
+  medical_expenses: "medical_expenses",
+  state_income_tax: "state_income_tax",
+  state_property_tax: "state_property_tax",
+  state_sales_tax: "state_sales_tax",
+  mortgage_interest: "mortgage_interest",
+  charitable_cash: "charitable_cash",
+  charitable_property: "charitable_property",
+  hsa_contribution: "hsa_contribution",
+  ira_contribution_traditional: "ira_contribution_traditional",
+  ira_contribution_roth: "ira_contribution_roth",
+  schedule_c_expenses: "schedule_c_expenses",
+  dependent_care_expenses: "dependent_care_expenses",
+  qualified_education_expenses_aoc: "qualified_education_expenses_aoc",
+  qualified_education_expenses_llc: "qualified_education_expenses_llc",
+  retirement_contributions_savers: "retirement_contributions_savers",
 } as const;
 
 export interface CreateAdjustmentBody {
@@ -611,6 +695,21 @@ export const UpdateAdjustmentBodyAdjustmentType = {
   investment_income: "investment_income",
   qbi_income: "qbi_income",
   amt_preferences: "amt_preferences",
+  medical_expenses: "medical_expenses",
+  state_income_tax: "state_income_tax",
+  state_property_tax: "state_property_tax",
+  state_sales_tax: "state_sales_tax",
+  mortgage_interest: "mortgage_interest",
+  charitable_cash: "charitable_cash",
+  charitable_property: "charitable_property",
+  hsa_contribution: "hsa_contribution",
+  ira_contribution_traditional: "ira_contribution_traditional",
+  ira_contribution_roth: "ira_contribution_roth",
+  schedule_c_expenses: "schedule_c_expenses",
+  dependent_care_expenses: "dependent_care_expenses",
+  qualified_education_expenses_aoc: "qualified_education_expenses_aoc",
+  qualified_education_expenses_llc: "qualified_education_expenses_llc",
+  retirement_contributions_savers: "retirement_contributions_savers",
 } as const;
 
 export interface UpdateAdjustmentBody {

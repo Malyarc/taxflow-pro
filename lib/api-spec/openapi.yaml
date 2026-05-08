@@ -613,6 +613,19 @@ components:
         otherDependents:
           type: integer
           description: Other qualifying dependents (drives the $500 Credit for Other Dependents).
+        dependentsForCareCredit:
+          type: integer
+          description: Children age 12 and under (drives Dependent Care Credit eligibility).
+        taxpayerAge:
+          type: ["integer", "null"]
+        spouseAge:
+          type: ["integer", "null"]
+        spouseEarnedIncome:
+          type: ["number", "null"]
+        hsaIsFamilyCoverage:
+          type: boolean
+        iraCoveredByWorkplacePlan:
+          type: boolean
         notes:
           type: ["string", "null"]
         createdAt:
@@ -645,6 +658,18 @@ components:
           type: integer
         otherDependents:
           type: integer
+        dependentsForCareCredit:
+          type: integer
+        taxpayerAge:
+          type: ["integer", "null"]
+        spouseAge:
+          type: ["integer", "null"]
+        spouseEarnedIncome:
+          type: ["number", "null"]
+        hsaIsFamilyCoverage:
+          type: boolean
+        iraCoveredByWorkplacePlan:
+          type: boolean
         notes:
           type: ["string", "null"]
 
@@ -670,6 +695,18 @@ components:
           type: integer
         otherDependents:
           type: integer
+        dependentsForCareCredit:
+          type: integer
+        taxpayerAge:
+          type: ["integer", "null"]
+        spouseAge:
+          type: ["integer", "null"]
+        spouseEarnedIncome:
+          type: ["number", "null"]
+        hsaIsFamilyCoverage:
+          type: boolean
+        iraCoveredByWorkplacePlan:
+          type: boolean
         notes:
           type: ["string", "null"]
 
@@ -1071,6 +1108,36 @@ components:
           type: ["number", "null"]
         preferentialIncome:
           type: ["number", "null"]
+        # Schedule A line items
+        medicalDeductible:
+          type: ["number", "null"]
+        saltDeductible:
+          type: ["number", "null"]
+        mortgageDeductible:
+          type: ["number", "null"]
+        charitableDeductible:
+          type: ["number", "null"]
+        # Above-the-line deductions
+        hsaDeduction:
+          type: ["number", "null"]
+        iraDeduction:
+          type: ["number", "null"]
+        # Credits
+        eitc:
+          type: ["number", "null"]
+        aocCredit:
+          type: ["number", "null"]
+        aocRefundablePortion:
+          type: ["number", "null"]
+        llcCredit:
+          type: ["number", "null"]
+        saversCredit:
+          type: ["number", "null"]
+        dependentCareCredit:
+          type: ["number", "null"]
+        # Schedule C
+        scheduleCExpenses:
+          type: ["number", "null"]
         notes:
           type: ["string", "null"]
         createdAt:
@@ -1132,7 +1199,7 @@ components:
           type: integer
         adjustmentType:
           type: string
-          enum: [deduction, credit, additional_income, withholding_adjustment, other, self_employment_income, investment_income, qbi_income, amt_preferences]
+          enum: [deduction, credit, additional_income, withholding_adjustment, other, self_employment_income, investment_income, qbi_income, amt_preferences, medical_expenses, state_income_tax, state_property_tax, state_sales_tax, mortgage_interest, charitable_cash, charitable_property, hsa_contribution, ira_contribution_traditional, ira_contribution_roth, schedule_c_expenses, dependent_care_expenses, qualified_education_expenses_aoc, qualified_education_expenses_llc, retirement_contributions_savers]
         amount:
           type: number
         description:
@@ -1154,7 +1221,7 @@ components:
       properties:
         adjustmentType:
           type: string
-          enum: [deduction, credit, additional_income, withholding_adjustment, other, self_employment_income, investment_income, qbi_income, amt_preferences]
+          enum: [deduction, credit, additional_income, withholding_adjustment, other, self_employment_income, investment_income, qbi_income, amt_preferences, medical_expenses, state_income_tax, state_property_tax, state_sales_tax, mortgage_interest, charitable_cash, charitable_property, hsa_contribution, ira_contribution_traditional, ira_contribution_roth, schedule_c_expenses, dependent_care_expenses, qualified_education_expenses_aoc, qualified_education_expenses_llc, retirement_contributions_savers]
         amount:
           type: number
         description:
@@ -1169,7 +1236,7 @@ components:
       properties:
         adjustmentType:
           type: string
-          enum: [deduction, credit, additional_income, withholding_adjustment, other, self_employment_income, investment_income, qbi_income, amt_preferences]
+          enum: [deduction, credit, additional_income, withholding_adjustment, other, self_employment_income, investment_income, qbi_income, amt_preferences, medical_expenses, state_income_tax, state_property_tax, state_sales_tax, mortgage_interest, charitable_cash, charitable_property, hsa_contribution, ira_contribution_traditional, ira_contribution_roth, schedule_c_expenses, dependent_care_expenses, qualified_education_expenses_aoc, qualified_education_expenses_llc, retirement_contributions_savers]
         amount:
           type: number
         description:

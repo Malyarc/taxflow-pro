@@ -40,6 +40,13 @@ interface FormState {
   taxYear: number;
   dependentsUnder17: number;
   otherDependents: number;
+  // Phase 1 — drive saver's, dep care, IRA/HSA limits, education credits
+  dependentsForCareCredit: number;
+  taxpayerAge: number | "";
+  spouseAge: number | "";
+  spouseEarnedIncome: number | "";
+  hsaIsFamilyCoverage: boolean;
+  iraCoveredByWorkplacePlan: boolean;
   notes: string;
 }
 
@@ -53,6 +60,12 @@ const defaultForm: FormState = {
   taxYear: new Date().getFullYear() - 1,
   dependentsUnder17: 0,
   otherDependents: 0,
+  dependentsForCareCredit: 0,
+  taxpayerAge: "",
+  spouseAge: "",
+  spouseEarnedIncome: "",
+  hsaIsFamilyCoverage: false,
+  iraCoveredByWorkplacePlan: false,
   notes: "",
 };
 
@@ -76,6 +89,14 @@ export default function ClientForm({ editId }: Props) {
 
   useEffect(() => {
     if (existing) {
+      const e = existing as typeof existing & {
+        dependentsForCareCredit?: number;
+        taxpayerAge?: number | null;
+        spouseAge?: number | null;
+        spouseEarnedIncome?: number | null;
+        hsaIsFamilyCoverage?: boolean;
+        iraCoveredByWorkplacePlan?: boolean;
+      };
       setForm({
         firstName: existing.firstName || "",
         lastName: existing.lastName || "",
@@ -88,12 +109,18 @@ export default function ClientForm({ editId }: Props) {
         taxYear: existing.taxYear || new Date().getFullYear() - 1,
         dependentsUnder17: existing.dependentsUnder17 ?? 0,
         otherDependents: existing.otherDependents ?? 0,
+        dependentsForCareCredit: e.dependentsForCareCredit ?? 0,
+        taxpayerAge: e.taxpayerAge ?? "",
+        spouseAge: e.spouseAge ?? "",
+        spouseEarnedIncome: e.spouseEarnedIncome ?? "",
+        hsaIsFamilyCoverage: e.hsaIsFamilyCoverage ?? false,
+        iraCoveredByWorkplacePlan: e.iraCoveredByWorkplacePlan ?? false,
         notes: existing.notes || "",
       });
     }
   }, [existing]);
 
-  function set(k: keyof FormState, v: string | number) {
+  function set(k: keyof FormState, v: string | number | boolean) {
     // Radix Select can fire onValueChange with "" before SelectItems mount;
     // ignore that to prevent it from wiping a saved state value during initial render.
     if (k === "state" && v === "") return;
@@ -111,6 +138,12 @@ export default function ClientForm({ editId }: Props) {
       taxYear: Number(form.taxYear),
       dependentsUnder17: Number(form.dependentsUnder17) || 0,
       otherDependents: Number(form.otherDependents) || 0,
+      dependentsForCareCredit: Number(form.dependentsForCareCredit) || 0,
+      taxpayerAge: form.taxpayerAge === "" ? null : Number(form.taxpayerAge),
+      spouseAge: form.spouseAge === "" ? null : Number(form.spouseAge),
+      spouseEarnedIncome: form.spouseEarnedIncome === "" ? null : Number(form.spouseEarnedIncome),
+      hsaIsFamilyCoverage: Boolean(form.hsaIsFamilyCoverage),
+      iraCoveredByWorkplacePlan: Boolean(form.iraCoveredByWorkplacePlan),
     };
     if (isEdit) {
       updateClient.mutate(
@@ -264,6 +297,88 @@ export default function ClientForm({ editId }: Props) {
                   onChange={(e) => set("otherDependents", Number(e.target.value))}
                 />
                 <p className="text-xs text-muted-foreground">Drives $500 Credit for Other Dependents.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Children for Dep Care Credit (≤ 12)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.dependentsForCareCredit}
+                  onChange={(e) => set("dependentsForCareCredit", Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Drives Dependent Care Credit (Form 2441).</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Spouse Earned Income</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.spouseEarnedIncome}
+                  onChange={(e) => set("spouseEarnedIncome", e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="MFJ: must be > 0 for dep care credit"
+                />
+                <p className="text-xs text-muted-foreground">Required for Dep Care Credit if MFJ.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Taxpayer Age</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.taxpayerAge}
+                  onChange={(e) => set("taxpayerAge", e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="e.g. 35"
+                />
+                <p className="text-xs text-muted-foreground">≥ 50 enables IRA catch-up; ≥ 55 enables HSA catch-up.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Spouse Age</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.spouseAge}
+                  onChange={(e) => set("spouseAge", e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="e.g. 33"
+                />
+                <p className="text-xs text-muted-foreground">For joint catch-up contribution limits.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-start gap-2">
+                <input
+                  id="hsa-family"
+                  type="checkbox"
+                  className="mt-1"
+                  checked={form.hsaIsFamilyCoverage}
+                  onChange={(e) => set("hsaIsFamilyCoverage", e.target.checked)}
+                />
+                <Label htmlFor="hsa-family" className="font-normal">
+                  HSA: Family coverage (vs self-only)
+                  <p className="text-xs text-muted-foreground mt-1">Family limit $8,300 (2024) vs self-only $4,150.</p>
+                </Label>
+              </div>
+              <div className="flex items-start gap-2">
+                <input
+                  id="ira-plan"
+                  type="checkbox"
+                  className="mt-1"
+                  checked={form.iraCoveredByWorkplacePlan}
+                  onChange={(e) => set("iraCoveredByWorkplacePlan", e.target.checked)}
+                />
+                <Label htmlFor="ira-plan" className="font-normal">
+                  IRA: Covered by workplace retirement plan
+                  <p className="text-xs text-muted-foreground mt-1">Triggers IRA deduction phase-out by AGI.</p>
+                </Label>
               </div>
             </div>
 
