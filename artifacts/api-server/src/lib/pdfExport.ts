@@ -39,7 +39,7 @@ export function buildTaxReturnPdf(client: Client, ret: ComputedTaxReturn): Promi
     // Header
     doc.fontSize(20).fillColor("#000").font("Helvetica-Bold").text("Tax Return Summary");
     doc.moveDown(0.3);
-    doc.fontSize(11).font("Helvetica").fillColor("#555").text(`Prepared by TaxFlow Pro · TY ${ret.taxYear}`);
+    doc.fontSize(11).font("Helvetica").fillColor("#555").text(`Prepared by TaxFlow Assistant · TY ${ret.taxYear}`);
     doc.moveDown(0.3);
     const reportDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     doc.fontSize(9).fillColor("#888").text(`Generated ${reportDate}`);

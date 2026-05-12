@@ -45,7 +45,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-56 border-r bg-card flex flex-col shrink-0">
           <div className="px-6 py-5 border-b">
-            <h1 className="text-lg font-bold tracking-tight text-primary">TaxFlow Pro</h1>
+            <h1 className="text-lg font-bold tracking-tight text-primary">TaxFlow Assistant</h1>
             <p className="text-[11px] text-muted-foreground mt-0.5 uppercase tracking-widest">CPA Precision Terminal</p>
           </div>
           <nav className="flex-1 px-3 py-4 space-y-1">

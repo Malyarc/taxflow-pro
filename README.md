@@ -1,4 +1,4 @@
-# TaxFlow Pro
+# TaxFlow Assistant
 
 A CPA tax filing efficiency app — upload W-2s, auto-extract data via AI (Google Gemini), calculate federal/state taxes, manage client adjustments.
 
@@ -69,7 +69,7 @@ DATABASE_URL=... AI_API_KEY=... node artifacts/api-server/dist/index.mjs
    - Or provision Amazon RDS PostgreSQL and use its connection string.
 5. **Clone & build**:
    ```bash
-   git clone <your-repo> taxflow-pro && cd taxflow-pro
+   git clone <your-repo> taxflow-assistant && cd taxflow-assistant
    cp .env.example .env && nano .env       # set DATABASE_URL and AI_API_KEY
    pnpm install
    pnpm --filter @workspace/db run push
